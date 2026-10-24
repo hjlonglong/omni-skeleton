@@ -1,0 +1,122 @@
+/**
+ *******************************************************************************
+ * @file      :control_task.cpp
+ * @brief     :底盘任务层——单轮控制（单电机速度闭环）
+ * @history   :
+ *  Version     Date            Author          Note
+ *  V1.0.0      2026-10-21      Lead            1. 新增 ControlTask：单轮速度环实现
+ *******************************************************************************
+ * @attention :
+ *  - 控制链路：TIM6 1 ms 中断 → MainTask() → ControlTask() → CommTask()。
+ *    ControlTask 用 PID（hello_world::pid::Pid）把轮速拉向目标，setInput()
+ *    写电流（InputType::kCurr），CommTask 在同一拍把控制帧 0x200 发出。
+ *  - TEST_MODE == 1（台架，车轮必须离地）：目标来自 CalcTestSweepTargetRadS()
+ *    三角波扫掠，电流限幅 kTestWheelCurrentLimit（2 A）；超过
+ *    kTestWheelDurationMs 后目标归零。
+ *  - TEST_MODE == 0：安全兜底，保持零电流；接入遥控/状态机（WP-09/WP-12）后
+ *    由状态机给出目标，本任务只做闭环。
+ *  - TODO【WP-10/WP-12】：增加反馈离线监督（>100 ms 无反馈时零电流 + 状态机
+ *    降级）；当前单轮台架阶段先用 2 A 限幅 + 离地测试兜底。
+ *******************************************************************************
+ *  Copyright (c) 2024 Hello World Team, Zhejiang University.
+ *  All Rights Reserved.
+ *******************************************************************************
+ */
+/* Includes ------------------------------------------------------------------*/
+#include "control_task.hpp"
+
+#include <cmath>
+#include <cstdint>
+
+#include "config.hpp"
+#include "ins_motor.hpp"
+#include "ins_pid.hpp"
+#include "motor.hpp"
+#include "pid.hpp"
+#include "tick.hpp"
+
+/* Private constants ---------------------------------------------------------*/
+/* Private types -------------------------------------------------------------*/
+/* Private variables ---------------------------------------------------------*/
+namespace
+{
+/* 单轮控制使用的电机 / PID 实例（ControlTaskInit 中绑定） */
+hello_world::motor::Motor *g_motor = nullptr;
+hello_world::pid::Pid *g_pid = nullptr;
+uint32_t g_start_tick_ms = 0u;  ///< 扫掠计时起点（ControlTaskInit 时刻）
+bool g_inited = false;          ///< 初始化完成标志
+}  // namespace
+
+/* Private function prototypes -----------------------------------------------*/
+/* Exported function definitions ---------------------------------------------*/
+void ControlTaskInit(void)
+{
+  g_motor = GetMotorWheel(config::kTestWheelIdx);
+  g_pid = GetPidMotorWheel(config::kTestWheelIdx);
+  g_start_tick_ms = hello_world::tick::GetTickMs();
+  g_inited = false;
+
+  if (g_motor == nullptr || g_pid == nullptr) {
+    return;  /* 索引非法（config::kTestWheelIdx 越界）：本任务不动作 */
+  }
+
+  /* 轮速环 PID：输入为速度误差（rad/s），输出为电流（A） */
+  constexpr float kLimit =
+#if TEST_MODE == 1
+      config::kTestWheelCurrentLimit;  /* 台架调试：≤2 A */
+#else
+      config::kMaxWheelCurrent;  /* 正常模式：沿用整车限幅 */
+#endif
+  hello_world::pid::Pid::Config cfg;
+  cfg.kp = config::kPidWheelKp;
+  cfg.ki = config::kPidWheelKi;
+  cfg.kd = config::kPidWheelKd;
+  cfg.out_min = -kLimit;
+  cfg.out_max = kLimit;
+  cfg.integ_min = -config::kPidWheelIntegMax;
+  cfg.integ_max = config::kPidWheelIntegMax;
+  cfg.dead_zone = 0.0f;      /* 轮速环死区由整车状态机处理，避免死区造成稳态误差 */
+  cfg.d_lpf_alpha = 0.0f;    /* 轮速环 kd=0，微分低通暂不启用 */
+  g_pid->init(cfg);
+
+  /* 上电先清零输入，避免残留非零指令 */
+  (void)g_motor->setInput(0.0f);
+  g_inited = true;
+}
+
+void ControlTask(void)
+{
+  if (!g_inited || g_motor == nullptr || g_pid == nullptr) {
+    return;
+  }
+
+  const float vel = g_motor->vel();  /* 输出端角速度，rad/s（由 CAN 反馈 decode） */
+
+#if TEST_MODE == 1
+  /* ---- 台架模式：单轮三角波扫掠（车轮必须离地）---- */
+  const uint32_t elapsed_ms =
+      hello_world::tick::GetTickMs() - g_start_tick_ms;  /* uint32 减法天然回绕安全 */
+  const float target = CalcTestSweepTargetRadS(elapsed_ms);
+
+  /* 反馈异常（NaN/Inf）时直接零电流，避免把异常值送进 PID 与电机 */
+  if (!std::isfinite(vel)) {
+    (void)g_motor->setInput(0.0f);
+    return;
+  }
+
+  float out = g_pid->calc(target, vel, config::kTs);
+  if (!std::isfinite(out)) {
+    out = 0.0f;
+    g_pid->reset();
+  }
+  (void)g_motor->setInput(out);
+#else
+  /* ---- 正常模式：安全兜底 ----
+   * 遥控（WP-09）与状态机/轮速分配（WP-12）尚未接入，当前无目标来源，保持
+   * 零电流，保证任何情况下不会无输入输出力矩。 */
+  (void)vel;
+  (void)g_motor->setInput(0.0f);
+#endif
+}
+
+/* Private function definitions ----------------------------------------------*/

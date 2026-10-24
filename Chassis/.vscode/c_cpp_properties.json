@@ -1,0 +1,57 @@
+{
+    "version": 4,
+    "configurations": [
+        {
+            "name": "STM32F407-Chassis",
+            "compilerPath": "D:/gnu/arm-gnu-toolchain-14.3.rel1-mingw-w64-i686-arm-none-eabi/bin/arm-none-eabi-g++.exe",
+            "intelliSenseMode": "windows-gcc-arm",
+            "cStandard": "c11",
+            "cppStandard": "c++20",
+            "defines": [
+                "DEBUG",
+                "STM32F407xx",
+                "USE_HAL_DRIVER",
+                "USE_HAL_TICK",
+                "STM32_THREAD_SAFE_STRATEGY=2",
+                "STM32_HAL_FILENAME=\"stm32f4xx_hal.h\"",
+                "ARM_MATH_MATRIX_CHECK",
+                "ARM_MATH_ROUNDING"
+            ],
+            "includePath": [
+                "${workspaceFolder}/Core",
+                "${workspaceFolder}/Core/Inc",
+                "${workspaceFolder}/Core/Src",
+                "${workspaceFolder}/Drivers",
+                "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32F4xx/Include",
+                "${workspaceFolder}/Drivers/CMSIS/Include",
+                "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc",
+                "${workspaceFolder}/Drivers/STM32F4xx_HAL_Driver/Inc/Legacy",
+                "${workspaceFolder}/inc",
+                "${workspaceFolder}/src",
+                "${workspaceFolder}/Instance/component",
+                "${workspaceFolder}/RobotModules/component",
+                "${workspaceFolder}/Task/component",
+                "${workspaceFolder}/../RobotComponents",
+                "${workspaceFolder}/../RobotComponents/component",
+                "${workspaceFolder}/third_party/dsp/CMSIS-DSP/Include",
+                "${workspaceFolder}/third_party/SEGGER/RTT",
+                "${workspaceFolder}/third_party/SEGGER/Config",
+                "${workspaceFolder}/third_party/Eigen3"
+            ],
+            "compileCommands": "${workspaceFolder}/build/ide/compile_commands.json",
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/Core",
+                    "${workspaceFolder}/Drivers",
+                    "${workspaceFolder}/inc",
+                    "${workspaceFolder}/src",
+                    "${workspaceFolder}/Instance",
+                    "${workspaceFolder}/RobotModules",
+                    "${workspaceFolder}/Task",
+                    "${workspaceFolder}/../RobotComponents"
+                ],
+                "limitSymbolsToIncludedHeaders": false
+            }
+        }
+    ]
+}
