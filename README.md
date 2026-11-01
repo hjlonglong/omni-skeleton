@@ -71,9 +71,9 @@ cmake --build --preset Debug -j 8
 > 也可不用 preset，直接 `cmake -S . -B build -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$PWD/cmake/gcc-arm-none-eabi.cmake" -DCMAKE_BUILD_TYPE=Debug`；`-DCMAKE_TOOLCHAIN_FILE` 必须为绝对路径。
 > ELF 固定输出到 `<板>/build/omni_<board>.elf`，可用 Ozone（SWD 4 MHz）加载。
 
-基线（2026-11-01，`TEST_MODE=1`，Debug 全量构建）：
+基线（2026-11-01，`TEST_MODE=0` 交付态，Debug 全量构建；台架 `TEST_MODE=1` 时 Chassis 约多 1.6 KB）：
 
 | 板 | 编译单元 | 结果 | text | data | bss |
 | --- | --- | --- | --- | --- | --- |
-| Chassis | 677 | 0 error / 0 warning | 46,988 B | 112 B | 7,960 B |
+| Chassis | 677 | 0 error / 0 warning | 45,424 B | 112 B | 7,944 B |
 | Gimbal | 678 | 0 error / 0 warning | 38,840 B | 20 B | 6,900 B |
