@@ -1,0 +1,52 @@
+# =============================================================================
+#  omni_skeleton — Git 忽略规则（RM 2026 全向轮步兵电控）
+#  只提交源码/配置/文档；构建产物、IDE 缓存、大体积测试数据不入库
+# =============================================================================
+
+# ---- 构建产物（任何层级的 build/ 目录，CMake 默认输出） ----
+build/
+**/build/
+*.o
+*.obj
+*.d
+*.elf
+*.hex
+*.bin
+*.map
+*.exe
+*.a
+*.lib
+
+# ---- CMake 生成物 ----
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+CMakeUserPresets.json
+
+# ---- IDE / 工具缓存 ----
+.idea/
+.vscode/compile_commands.json
+.vscode/ipch/
+# Ozone 调试工程含本机 USB 序列号/路径：本地创建、不入库
+*.jdebug
+*.jdebug.user
+*.bak
+*.orig
+*~
+.gcc-flags.json
+
+# ---- 操作系统 ----
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# ---- 日志与临时文件 ----
+*.log
+*.tmp
+
+# ---- 大体积测试数据（汇总结果提交到 docs/*.md，原始数据本地保留） ----
+docs/logs/*.csv
+docs/videos/
+docs/photos/
+tests/host/build/

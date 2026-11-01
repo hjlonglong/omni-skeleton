@@ -1,0 +1,42 @@
+# =============================================================================
+#  omni_skeleton — 行尾与文本属性（RM 2026 全向轮步兵电控）
+#  仓库内统一 LF；Windows 工作区不影响 gcc/CMake；二进制文件显式标记
+# =============================================================================
+
+* text=auto
+
+# --- 源码：统一 LF ---
+*.c            text eol=lf
+*.h            text eol=lf
+*.cpp          text eol=lf
+*.hpp          text eol=lf
+*.s            text eol=lf
+*.S            text eol=lf
+*.cmake        text eol=lf
+CMakeLists.txt text eol=lf
+*.ld           text eol=lf
+*.ioc          text eol=lf
+*.json         text eol=lf
+*.py           text eol=lf
+*.md           text eol=lf
+*.txt          text eol=lf
+*.jdebug       text eol=lf
+
+# --- Windows 脚本：保留 CRLF（PowerShell 5.1 兼容） ---
+*.ps1          text eol=crlf
+*.bat          text eol=crlf
+*.cmd          text eol=crlf
+
+# --- 二进制：禁止行尾转换 ---
+*.pdf          binary
+*.jpg          binary
+*.jpeg         binary
+*.png          binary
+*.gif          binary
+*.ico          binary
+*.a            binary
+*.lib          binary
+*.elf          binary
+*.hex          binary
+*.bin          binary
+*.SVD          binary
