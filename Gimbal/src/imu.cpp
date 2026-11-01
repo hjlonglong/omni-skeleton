@@ -8,6 +8,8 @@
  *  V1.0.0      2026-10-28      Lead            1. 补全 STEP 4/5/6：零漂标定、扣零漂 +
  *                                                Mahony 更新、就绪判定；修正 Mahony
  *                                                命名空间（hello_world::ahrs）
+ *  V1.1.0      2026-11-01      A1              1. 补全 Chassis 板 STEP 5/6（姿态更新与
+ *                                                就绪判定）；两板 src/imu.cpp 逐字节同源
  *******************************************************************************
  * @attention :
  *  - 两板同源文件（Chassis/src/imu.cpp 与 Gimbal/src/imu.cpp 逐字节一致）。
@@ -39,7 +41,7 @@ namespace imu
 void Imu::init()
 {
   /* ===== STEP 1：BMI088 硬件配置（SPI1 + 两个片选） =====
-   * 假设（WP-06 任务卡）：SPI1；ACC CS = PA4；GYRO CS = PB0；
+   * 两板一致：SPI1；ACC CS = PA4；GYRO CS = PB0；
    * 两板 gpio.c 已把它们配成推挽输出且默认拉高。
    * TODO(硬件)：焊好后先用示波器看 CS 波形 / 读芯片 ID 再确认，不要想当然。 */
   BMI088HWConfig hw_config;
@@ -50,7 +52,8 @@ void Imu::init()
   hw_config.gyro_cs_pin = GPIO_PIN_0;   // TODO(硬件): 陀螺仪 CS
 
   /* 安装方向：单位阵 = 芯片坐标与车体坐标同向（x 前 y 左 z 上）。
-   * TODO(硬件)：若 IMU 装反/旋转 90°，改这里（行优先 3x3），不要改算法。 */
+   * 两板当前安装方向一致；若某板装反/旋转 90°，只改这里的 rot_mat（行优先 3x3），
+   * 不要改算法。TODO(硬件)：实车确认。 */
   static const float kRotMatIdentity[9] = {1.0f, 0.0f, 0.0f,
                                            0.0f, 1.0f, 0.0f,
                                            0.0f, 0.0f, 1.0f};
@@ -105,7 +108,7 @@ void Imu::update()
   }
   mahony_.update(acc, gyro);
   mahony_.getEulerAngle(euler_);
-  gyro_z_ = gyro[2];  // 底盘 yaw 阻尼/角速度环直接用陀螺 z 轴
+  gyro_z_ = gyro[2];  // yaw 阻尼/角速度环直接用陀螺 z 轴（两板通用）
 
   /* ===== STEP 6：就绪判定 =====
    * 标定完成后再跑 kReadyExtraFrames（100 帧 = 0.1 s）等 Mahony 收敛，

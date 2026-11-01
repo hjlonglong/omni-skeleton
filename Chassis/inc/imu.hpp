@@ -1,13 +1,15 @@
 /**
  *******************************************************************************
  * @file      : imu.hpp
- * @brief     : IMU 封装类（WP-06 骨架：BMI088 原始数据 + 零漂估计 + Mahony 姿态）
+ * @brief     : IMU 封装类（BMI088 原始数据 + 零漂标定 + Mahony 姿态解算）
  * @history   :
  *  Version     Date            Author          Note
  *  V0.1.0      2026-10-24      Lead            1. 骨架：接口/状态机/纯函数零漂估计，
  *                                                算法主体留 TODO(STEP 4/5/6)
  *  V1.0.0      2026-10-28      Lead            1. 完成实现：修正 Mahony 命名空间
  *                                                （hello_world::ahrs）
+ *  V1.1.0      2026-11-01      A1              1. 补全 Chassis 板姿态更新（STEP 5/6）；
+ *                                                两板 inc/imu.hpp 与 src/imu.cpp 同源
  *******************************************************************************
  * @attention :
  *  - 两板同源文件：Chassis/inc/imu.hpp 与 Gimbal/inc/imu.hpp 必须逐字节一致（md5）。

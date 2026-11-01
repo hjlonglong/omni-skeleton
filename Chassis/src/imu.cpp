@@ -1,10 +1,15 @@
 /**
  *******************************************************************************
  * @file      : imu.cpp
- * @brief     : IMU 封装类实现（WP-06 骨架）
+ * @brief     : IMU 封装类实现（BMI088 原始数据 + 零漂标定 + Mahony 姿态解算）
  * @history   :
  *  Version     Date            Author          Note
  *  V0.1.0      2026-10-24      Lead            1. 骨架：init/update 分段留 TODO(STEP)
+ *  V1.0.0      2026-10-28      Lead            1. 补全 STEP 4/5/6：零漂标定、扣零漂 +
+ *                                                Mahony 更新、就绪判定；修正 Mahony
+ *                                                命名空间（hello_world::ahrs）
+ *  V1.1.0      2026-11-01      A1              1. 补全 Chassis 板 STEP 5/6（姿态更新与
+ *                                                就绪判定）；两板 src/imu.cpp 逐字节同源
  *******************************************************************************
  * @attention :
  *  - 两板同源文件（Chassis/src/imu.cpp 与 Gimbal/src/imu.cpp 逐字节一致）。
@@ -36,7 +41,7 @@ namespace imu
 void Imu::init()
 {
   /* ===== STEP 1：BMI088 硬件配置（SPI1 + 两个片选） =====
-   * 假设（WP-06 任务卡）：SPI1；ACC CS = PA4；GYRO CS = PB0；
+   * 两板一致：SPI1；ACC CS = PA4；GYRO CS = PB0；
    * 两板 gpio.c 已把它们配成推挽输出且默认拉高。
    * TODO(硬件)：焊好后先用示波器看 CS 波形 / 读芯片 ID 再确认，不要想当然。 */
   BMI088HWConfig hw_config;
@@ -47,7 +52,8 @@ void Imu::init()
   hw_config.gyro_cs_pin = GPIO_PIN_0;   // TODO(硬件): 陀螺仪 CS
 
   /* 安装方向：单位阵 = 芯片坐标与车体坐标同向（x 前 y 左 z 上）。
-   * TODO(硬件)：若 IMU 装反/旋转 90°，改这里（行优先 3x3），不要改算法。 */
+   * 两板当前安装方向一致；若某板装反/旋转 90°，只改这里的 rot_mat（行优先 3x3），
+   * 不要改算法。TODO(硬件)：实车确认。 */
   static const float kRotMatIdentity[9] = {1.0f, 0.0f, 0.0f,
                                            0.0f, 1.0f, 0.0f,
                                            0.0f, 0.0f, 1.0f};
@@ -55,12 +61,13 @@ void Imu::init()
 
   /* ===== STEP 2：芯片初始化 + 自检 =====
    * imuInit() 会读芯片 ID、写配置寄存器，阻塞数毫秒；返回错误位或 0。
-   * TODO(你)：STEP 2 完成后用 RTT 打印这个返回值，确认 == kBMI088ErrStateNoErr。 */
+   * 返回非 0 时 initialized_ 保持 false，update() 直接返回、isReady() 恒 false。 */
   const BMI088ErrState err = bmi_.imuInit(false);
   initialized_ = (err == kBMI088ErrStateNoErr);
-  (void)err;  // 暂未使用，避免编译告警；STEP 2 改成 RTT 打印
+  (void)err;  // 预留：接 RTT 后打印 err 便于定位硬件问题
 
-  /* ===== STEP 3：Mahony 初始化（采样率必须与 1 ms 调度一致） ===== */
+  /* ===== STEP 3：Mahony 初始化（采样率必须与 1 ms 调度一致） =====
+   * 注意：Mahony 在 hello_world::ahrs 命名空间（见 mahony.hpp）。 */
   mahony_.init(kSampleFreqHz, kMahonyKp, kMahonyKi);
 
   resetState();
@@ -78,32 +85,37 @@ void Imu::update()
   bmi_.getData(acc, gyro_raw, nullptr);  // acc: m/s²（含重力）；gyro: rad/s
 
   if (!calibrated_) {
-    if (drift_.addSample(gyro_raw)) {        // 窗口满（kCalibFrames=750 帧）
-      if (drift_.isStationary()) {           // 三轴均值/标准差都足够小
-        drift_.bias(bias_);                  // 取均值当零漂
-        calibrated_ = true;
+    /* ===== STEP 4：开机零漂标定 =====
+     * 静止采样 kCalibFrames（750 帧 = 0.75 s）角速度；
+     * 均值做零漂，同时用均值/标准差判静止；有运动则重采。 */
+    if (drift_.addSample(gyro_raw)) {          // 窗口满
+      if (drift_.isStationary()) {             // 确认静止
+        drift_.bias(bias_);                    // 取窗口均值作为零漂
+        calibrated_ = true;                    // 标定完成
       } else {
-        drift_.reset();                      // 有运动，重新采 0.75 s
+        drift_.reset();                        // 有运动 → 丢弃窗口重采
       }
+    }
+    return;  // 标定期间不跑 Mahony，也不置 ready_
   }
-  return;                                  // 标定期间不做 Mahony 更新
-}
 
-  /* ===== STEP 5：扣零漂 + Mahony 姿态更新（TODO 你来实现） =====
-   * 提示：
-   *   float gyro[3];
-   *   for (int i = 0; i < 3; ++i) { gyro[i] = gyro_raw[i] - bias_[i]; }
-   *   mahony_.update(acc, gyro);        // acc 必须含重力（getData 已给 m/s²）
-   *   mahony_.getEulerAngle(euler_);    // [roll pitch yaw]，rad
-   *   gyro_z_ = gyro[2];
-   */
-  (void)acc;
-  (void)gyro_raw;
+  /* ===== STEP 5：扣零漂 + Mahony 姿态更新 =====
+   * acc 必须含重力（getData 已给 m/s²），不要归一化/乘 9.8；
+   * gyro 为 rad/s。Mahony 输出 Z-Y-X 欧拉角 [roll pitch yaw]，单位 rad。 */
+  float gyro[3];
+  for (int i = 0; i < 3; ++i) {
+    gyro[i] = gyro_raw[i] - bias_[i];
+  }
+  mahony_.update(acc, gyro);
+  mahony_.getEulerAngle(euler_);
+  gyro_z_ = gyro[2];  // yaw 阻尼/角速度环直接用陀螺 z 轴（两板通用）
 
-  /* ===== STEP 6：就绪判定（TODO 你来实现） =====
-   * 提示：标定完成后再跑 kReadyExtraFrames 帧，姿态稳定后才允许进 Working：
-   *   if (++frames_after_calib_ >= kReadyExtraFrames) { ready_ = true; }
-   * 注意：ready_ 一旦置 true 不要自动清零；异常复位由上层重启流程处理。 */
+  /* ===== STEP 6：就绪判定 =====
+   * 标定完成后再跑 kReadyExtraFrames（100 帧 = 0.1 s）等 Mahony 收敛，
+   * 才允许状态机进 Working；ready_ 一旦置位不自动清零（上层重启才复位）。 */
+  if (!ready_ && ++frames_after_calib_ >= kReadyExtraFrames) {
+    ready_ = true;
+  }
 }
 
 /* Private function definitions ----------------------------------------------*/
