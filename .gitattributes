@@ -5,6 +5,10 @@
 
 * text=auto
 
+# --- 仓库元数据文件：统一 LF（换机 clone 也不被 core.autocrlf 改写） ---
+.gitignore     text eol=lf
+.gitattributes text eol=lf
+
 # --- 源码：统一 LF ---
 *.c            text eol=lf
 *.h            text eol=lf
@@ -20,7 +24,6 @@ CMakeLists.txt text eol=lf
 *.py           text eol=lf
 *.md           text eol=lf
 *.txt          text eol=lf
-*.jdebug       text eol=lf
 
 # --- Windows 脚本：保留 CRLF（PowerShell 5.1 兼容） ---
 *.ps1          text eol=crlf

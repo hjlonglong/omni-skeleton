@@ -1,9 +1,9 @@
 # omni-skeleton — RoboMaster 全向轮步兵电控（双板）
 
 > 本仓库是 2026 赛季 RoboMaster 全向轮步兵的电控工程，基于 Hello World 战队提供的双板骨架二次开发。
-> **本 README 随仓库推送**：远端快照 = `README.md` + `Chassis/` + `Gimbal/` + `RobotComponents/`。仓库根目录的 `scripts/`、`omni.code-workspace`、根级 `*.jdebug` 等本地文件不推送；板目录内的 `.vscode/*.json`、`Chassis/chassis.jdebug`、`Gimbal/gimbal.jdebug` 已在版本管理中，会随板目录一起推送（见 §2）。
+> **本 README 随仓库推送**：远端快照 = `README.md` + `.gitignore` + `.gitattributes` + `Chassis/` + `Gimbal/` + `RobotComponents/`。仓库根目录的 `scripts/`、`omni.code-workspace` 等本地文件不推送；板目录内的 `.vscode/*.json` 已跟踪、随板目录推送；`*.jdebug` 为本地 Ozone 工程（含本机 USB 序列号），不入库、需按本机环境自行创建（见 §2、§8）。
 
-- 代码基线：本地 `main`，远端 `origin/main`（`https://github.com/hjlonglong/omni-skeleton.git`）为 `README + Chassis + Gimbal + RobotComponents` 快照。
+- 代码基线：本地 `main`，远端 `origin/main`（`https://github.com/hjlonglong/omni-skeleton.git`）为 `README + .gitignore + .gitattributes + Chassis + Gimbal + RobotComponents` 快照。
 - 计划 / 契约 / 验收文档：`D:\rm\RM步兵电控计划\`（`00_任务书文本提取.txt`、`01_任务分解与一个月计划.md`、`02_接口契约_v1.0.md`、`03_Agent任务卡.md`、`04_验收与调试清单.md`、`05_一个月计划表.xlsx`）。
 - 旧仓库（全量历史，归档只读）：`D:\rm\大作业\omni_skeleton`。
 
@@ -34,8 +34,10 @@
 ## 2. 目录结构
 
 ```text
-omni-skeleton/                # 本地工作根（Git 仓库顶层 = README.md + 三个子目录）
+omni-skeleton/                # 本地工作根（Git 仓库顶层 = README.md + .gitignore + .gitattributes + 三个子目录）
 ├── README.md                 # 本文件（随仓库推送）
+├── .gitignore                # 忽略规则（随仓库推送；build/、*.jdebug 等不入库）
+├── .gitattributes            # 行尾规则（随仓库推送；文本 LF、PowerShell/cmd CRLF）
 ├── Chassis/                  # 底盘板（RoboMaster C 型开发板，STM32F407IGH6）
 │   ├── Core/                 # CubeMX 生成：main.c / can.c / spi.c / tim.c / iwdg.c / gpio.c / usart.c / dma.c、
 │   │                         #   stm32f4xx_hal_msp.c / stm32f4xx_it.c 等
@@ -50,24 +52,24 @@ omni-skeleton/                # 本地工作根（Git 仓库顶层 = README.md +
 │   ├── third_party/          # CMSIS-DSP、Eigen3、SEGGER RTT
 │   ├── .vscode/              # 板级 IntelliSense 配置（已跟踪，随板目录推送）
 │   ├── cmake/                # arm-none-eabi 工具链文件
-│   ├── chassis.jdebug        # SEGGER Ozone 工程（加载 build/omni_chassis.elf）
+│   ├── chassis.jdebug        # 本地 Ozone 工程（不入库：含本机 USB 序列号；加载 build/omni_chassis.elf）
 │   └── build/                # 构建产物（Git 忽略）：ide/（IntelliSense DB）、omni_chassis.elf
-├── Gimbal/                   # 云台板（同构板级目录，gimbal.jdebug；Task 层目前只有 main_task/comm_task）
+├── Gimbal/                   # 云台板（同构板级目录，gimbal.jdebug 为本地工程不入库；Task 层目前只有 main_task/comm_task）
 ├── RobotComponents/          # 双板共享代码：module_state.hpp、gimbal_chassis_comm.{hpp,cpp}
 │   └── component/
 ├── scripts/                  # 本地工具（不推送）：gen_ide_db.cmd/.ps1、push.cmd/.ps1、README.md
 ├── omni.code-workspace       # 多根 VSCode 工作区
-└── test_chassis.jdebug       # 临时调试工程（未跟踪，已被本地 exclude 忽略，可删）
+└── test_chassis.jdebug       # 临时调试工程（未跟踪、被 .gitignore 的 *.jdebug 忽略，可删）
 ```
 
-> 说明：`.gitignore`、`.gitattributes`、`scripts/`、`omni.code-workspace` 等只存在于本地，已被 `.git/info/exclude` 排除、不随仓库推送。因此远端快照里没有忽略规则，克隆后 `build/` 等构建产物会显示为未跟踪，需按需自行忽略。
+> 说明：`.gitignore`、`.gitattributes` 已入库并随快照推送（克隆后忽略/行尾规则即生效）；`scripts/`、根级 `.vscode/`、`omni.code-workspace`、根级 `*.jdebug` 等本地工具/临时文件由 `.git/info/exclude` 排除，不推送。
 
 ---
 
 ## 3. Git 与推送约定
 
-- 远端仓库：`https://github.com/hjlonglong/omni-skeleton.git`，`main` 分支 = `README.md` + `Chassis/` + `Gimbal/` + `RobotComponents/` 的快照。
-- **白名单推送**：`scripts/push.ps1` 只允许 `README.md`、`Chassis`、`Gimbal`、`RobotComponents` 四个顶层条目进入快照，其它顶层文件（scripts、计划文档、PDF、`*.code-workspace`）一律不推；推送前校验提交树顶层条目，违反白名单直接报错。
+- 远端仓库：`https://github.com/hjlonglong/omni-skeleton.git`，`main` 分支 = `README.md` + `.gitignore` + `.gitattributes` + `Chassis/` + `Gimbal/` + `RobotComponents/` 的快照。
+- **白名单推送**：`scripts/push.ps1` 只允许 `README.md`、`.gitignore`、`.gitattributes`、`Chassis`、`Gimbal`、`RobotComponents` 六个顶层条目进入快照，其它顶层文件（scripts、计划文档、PDF、`*.code-workspace`、根级 `*.jdebug`）一律不推；推送前校验提交树顶层条目，违反白名单直接报错。
 - README 已纳入 Git 版本管理：修改 README 后先 `git add README.md && git commit`，再运行 `push.cmd` 才会同步到远端。
 - 版本标签：`v0.1.0` 为 P1 里程碑（annotated tag，P1 收口提交）；后续里程碑收口时打 `v0.x.0`，已发布的 tag 不移动。
 - `scripts/push.ps1` 还会：`--force-with-lease` 强制覆盖 `origin/main`；main 推送成功后执行 `git push origin --tags` 把本地 tag 同步到远端；并删除远端除 `main` 外的分支、以及「本地不存在」的远端 tag（`-NoCleanRefs` 关闭这两类清理，本地 tag 仍会推送）。
@@ -195,6 +197,7 @@ D:\rm\omni-skeleton\scripts\gen_ide_db.cmd
 ```
 
   脚本会重建 `<板>/build/ide`，对两板执行 CMake configure（`-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`），输出 `<板>/build/ide/compile_commands.json`（实测 Chassis 677、Gimbal 678 条），只做 configure、不编译源码。
+- 板级 `.vscode/*.json` 已入库，但其中 `compilerPath` / `compileCommands` 写的是作者本机绝对路径；换机后需按本节重新生成（`gen_ide_db`）或手动修改，否则跳转/提示会失效。
 - 然后在 VSCode 执行 `C/C++: Reset IntelliSense Database` 并重载窗口。
 - 仍无法跳转时：查看 `C/C++: Log Diagnostics`（确认 compilerPath/compileCommands 被采用）；检查是否装了会抢占 C++ 解析的扩展（如 STM32CubeIDE/clangd 插件），必要时禁用；确认路径不含中文（本仓库已满足）。
 
@@ -202,7 +205,7 @@ D:\rm\omni-skeleton\scripts\gen_ide_db.cmd
 
 ## 8. 调试（Ozone / RTT）
 
-- 工程文件：`Chassis/chassis.jdebug`、`Gimbal/gimbal.jdebug`（STM32F407IG，SWD 4 MHz，自动加载 `$(ProjectDir)/build/omni_<board>.elf`）。
+- 工程文件：`Chassis/chassis.jdebug`、`Gimbal/gimbal.jdebug`（**本地文件，不入库**：含本机探针 USB 序列号/路径；换机需在 Ozone 中按本机序列号自行创建，STM32F407IG、SWD 4 MHz、加载 `$(ProjectDir)/build/omni_<board>.elf`）。
 - SEGGER RTT 已链接（`segger_rtt` 库），可直接在 Ozone Terminal 加 RTT 通道；当前应用层尚未打日志，主要靠变量观测。
 - 常用观测变量：
 
@@ -252,11 +255,10 @@ D:\rm\omni-skeleton\scripts\gen_ide_db.cmd
 3. Gimbal 任务层为空（WP-08 未开始）；Gimbal IMU 代码完整，但任务层尚未 `init/update`。
 4. **Chassis IMU 姿态更新未实现**：`Chassis/src/imu.cpp` 的 `update()` 只做开机零漂标定，STEP5（Mahony 更新 / 欧拉角）与 STEP6（`ready_` 收敛判定）仍是 TODO，`isReady()` 在底盘板上恒为 `false`；Gimbal 侧已完整。计划 WP-06 要求两板同步，属 P1 遗留（当前无消费方，不影响现有单轮台架）。
 5. `RobotComponents` 协议帧未接入调度（WP-10），双板在线状态尚未建立。
-6. `Chassis/inc/Pid.h` 为用户遗留旧版 PID 头文件，与 `pid.hpp` 重复，可删除或迁移。
-7. `test_chassis.jdebug` 为临时调试文件，未跟踪（已被本地 `.git/info/exclude` 排除），可删。
-8. TODO 统计（应用目录 `inc/src/Instance/Task/RobotModules` 内的 `TODO` 行）：Chassis 约 36 处、Gimbal 约 43 处。
-9. 主机单测（PID/IMU 纯函数）目前只在旧仓库 `tests/host`，待迁移到本仓库后纳入 CI 式验证。
-10. **忽略规则未入库**：`.gitignore`/`.gitattributes` 被 `.git/info/exclude` 排除、不随快照推送，克隆远端后 `build/` 等产物会显示为未跟踪；如需干净 clone 需把忽略规则纳入跟踪。
+6. `test_chassis.jdebug` 为临时调试文件，未跟踪（已被 `.gitignore` 的 `*.jdebug` 忽略），可删。
+7. TODO 统计（应用目录 `inc/src/Instance/Task/RobotModules` 内的 `TODO` 行）：Chassis 约 36 处、Gimbal 约 43 处。
+8. 主机单测（PID/IMU 纯函数）目前只在旧仓库 `tests/host`，待迁移到本仓库后纳入 CI 式验证。
+9. **本地文件不入库**：`*.jdebug`（Ozone 工程，含本机 USB 序列号）、`scripts/`、根级 `.vscode/`、`omni.code-workspace` 均为本地文件，不随快照推送；`.gitignore`/`.gitattributes` 已入库，clone 后忽略/行尾规则即生效。
 
 ### 后续路线（对应计划 01）
 
