@@ -97,7 +97,7 @@ inline constexpr uint32_t kTestWheelDurationMs = 15000;  ///< ms，扫掠总时�
 #define DEBUG_NO_IWDG 0  ///< 1 = 调试期临时关闭喂狗/复位（仅限台架 + Ozone 调试）
 #endif
 #ifndef TEST_MODE
-#define TEST_MODE 1  ///< 1 = 开环/单项调试模式（交付前必须为 0）
+#define TEST_MODE 0  ///< 1 = 开环/单项调试模式（交付前必须为 0）
 #endif
 
 }  // namespace config
