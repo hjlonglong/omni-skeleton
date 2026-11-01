@@ -47,6 +47,21 @@ uint32_t g_start_tick_ms = 0u;  ///< 扫掠计时起点（ControlTaskInit 时刻
 bool g_inited = false;          ///< 初始化完成标志
 }  // namespace
 
+#if TEST_MODE == 1
+/* ---- Ozone 调试镜像 --------------------------------------------------------
+ * 仅台架模式（TEST_MODE == 1）编译：把 ControlTask 的局部变量复制到全局
+ * volatile，Ozone 的 Live Watch 可直接添加下列表达式、运行中连续刷新：
+ *   g_dbg_target     目标轮速 rad/s（三角波扫掠值）
+ *   g_dbg_vel        实际轮速 rad/s（CAN 反馈）
+ *   g_dbg_out        本拍 PID 输出电流 A（限幅后）
+ *   g_dbg_elapsed_ms 扫掠已运行时间 ms（从 ControlTaskInit 起算）
+ * 正式固件（TEST_MODE == 0）中不生成这些变量，无需删除本段。 */
+volatile float g_dbg_target = 0.0f;      ///< 目标轮速，rad/s
+volatile float g_dbg_vel = 0.0f;         ///< 实际轮速，rad/s
+volatile float g_dbg_out = 0.0f;         ///< PID 输出电流，A
+volatile uint32_t g_dbg_elapsed_ms = 0u; ///< 扫掠已运行时间，ms
+#endif
+
 /* Private function prototypes -----------------------------------------------*/
 /* Exported function definitions ---------------------------------------------*/
 void ControlTaskInit(void)
@@ -82,6 +97,14 @@ void ControlTaskInit(void)
   /* 上电先清零输入，避免残留非零指令 */
   (void)g_motor->setInput(0.0f);
   g_inited = true;
+
+#if TEST_MODE == 1
+  /* Ozone 调试镜像清零（见文件内 g_dbg_* 说明） */
+  g_dbg_target = 0.0f;
+  g_dbg_vel = 0.0f;
+  g_dbg_out = 0.0f;
+  g_dbg_elapsed_ms = 0u;
+#endif
 }
 
 void ControlTask(void)
@@ -98,8 +121,14 @@ void ControlTask(void)
       hello_world::tick::GetTickMs() - g_start_tick_ms;  /* uint32 减法天然回绕安全 */
   const float target = CalcTestSweepTargetRadS(elapsed_ms);
 
+  /* 调试镜像：Ozone Live Watch 用（仅 TEST_MODE == 1 存在） */
+  g_dbg_elapsed_ms = elapsed_ms;
+  g_dbg_target = target;
+  g_dbg_vel = vel;
+
   /* 反馈异常（NaN/Inf）时直接零电流，避免把异常值送进 PID 与电机 */
   if (!std::isfinite(vel)) {
+    g_dbg_out = 0.0f;
     (void)g_motor->setInput(0.0f);
     return;
   }
@@ -110,6 +139,7 @@ void ControlTask(void)
     g_pid->reset();
   }
   (void)g_motor->setInput(out);
+  g_dbg_out = out;
 #else
   /* ---- 正常模式：安全兜底 ----
    * 遥控（WP-09）与状态机/轮速分配（WP-12）尚未接入，当前无目标来源，保持

@@ -1,3 +1,11 @@
+/*
+ * @Author: hjlonglong 356794146@qq.com
+ * @Date: 2026-10-24 19:05:02
+ * @LastEditors: hjlonglong 356794146@qq.com
+ * @LastEditTime: 2026-10-28 20:42:09
+ * @FilePath: \Chassis\inc\config.hpp
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ */
 /**
  *******************************************************************************
  * @file      :config.hpp
@@ -65,13 +73,13 @@ inline constexpr float kFollowWMax = 3.0f;      ///< rad/s，跟随环输出限�
 inline constexpr float kFollowDeadBandRad = 0.035f;  ///< rad，跟随死区（≈2°）
 
 /* ---- 轮速环 PID 初值（位置式，输入 rad/s 误差，输出电流 A）---- */
-inline constexpr float kPidWheelKp = 2.0f;        ///< TODO(调参)
+inline constexpr float kPidWheelKp = 10.0f;        ///< TODO(调参)
 inline constexpr float kPidWheelKi = 0.0f;        ///< TODO(调参)
 inline constexpr float kPidWheelKd = 0.0f;        ///< TODO(调参)
 inline constexpr float kPidWheelIntegMax = kMaxWheelCurrent;  ///< 积分限幅
 
 /* ---- 跟随环 PID 初值（输入 δ 误差 rad，输出自转 w rad/s）---- */
-inline constexpr float kPidFollowKp = 2.0f;       ///< TODO(调参)
+inline constexpr float kPidFollowKp = 10.0f;       ///< TODO(调参)
 inline constexpr float kPidFollowKi = 0.0f;       ///< TODO(调参)
 inline constexpr float kPidFollowKd = 0.1f;       ///< TODO(调参)
 inline constexpr float kPidFollowIntegMax = kFollowWMax;
@@ -89,7 +97,7 @@ inline constexpr uint32_t kTestWheelDurationMs = 15000;  ///< ms，扫掠总时�
 #define DEBUG_NO_IWDG 0  ///< 1 = 调试期临时关闭喂狗/复位（仅限台架 + Ozone 调试）
 #endif
 #ifndef TEST_MODE
-#define TEST_MODE 0  ///< 1 = 开环/单项调试模式（交付前必须为 0）
+#define TEST_MODE 1  ///< 1 = 开环/单项调试模式（交付前必须为 0）
 #endif
 
 }  // namespace config

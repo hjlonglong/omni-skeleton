@@ -53,8 +53,12 @@ void CommTaskInit(void) {
   if (HAL_CAN_Start(&hcan1) != HAL_OK) {
     Error_Handler();
   }
-  if (HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) !=
-      HAL_OK) {
+  /* 除接收外再打开错误类中断（ERRIE + 细分标志），由 HAL_CAN_IRQHandler 汇总后
+   * 调用 HW_can.cpp 里的 HAL_CAN_ErrorCallback，供 bus-off/ACK 错误等故障诊断。 */
+  if (HAL_CAN_ActivateNotification(
+          &hcan1, CAN_IT_RX_FIFO0_MSG_PENDING | CAN_IT_ERROR |
+                      CAN_IT_ERROR_WARNING | CAN_IT_ERROR_PASSIVE |
+                      CAN_IT_BUSOFF | CAN_IT_LAST_ERROR_CODE) != HAL_OK) {
     Error_Handler();
   }
 
@@ -63,8 +67,10 @@ void CommTaskInit(void) {
   if (HAL_CAN_Start(&hcan2) != HAL_OK) {
     Error_Handler();
   }
-  if (HAL_CAN_ActivateNotification(&hcan2, CAN_IT_RX_FIFO1_MSG_PENDING) !=
-      HAL_OK) {
+  if (HAL_CAN_ActivateNotification(
+          &hcan2, CAN_IT_RX_FIFO1_MSG_PENDING | CAN_IT_ERROR |
+                      CAN_IT_ERROR_WARNING | CAN_IT_ERROR_PASSIVE |
+                      CAN_IT_BUSOFF | CAN_IT_LAST_ERROR_CODE) != HAL_OK) {
     Error_Handler();
   }
 

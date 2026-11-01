@@ -27,6 +27,8 @@
 
 #include "comm_task.hpp"
 #include "control_task.hpp"
+#include "imu.hpp"
+#include "ins_imu.hpp"
 #include "iwdg.h"
 #include "stm32f4xx_hal.h"
 #include "tim.h"
@@ -37,7 +39,11 @@ void MainTaskInit(void)
   /* 1. 通讯层：触发 Instance 实例化电机、配置 CAN 滤波器并启动收发中断 */
   CommTaskInit();
 
-  /* 2. 控制层：绑定单轮电机与 PID、整定参数、清零历史状态 */
+  /* 2. 传感层：实例化 Imu 并初始化 BMI088（SPI1 + 片选），阻塞数 ms；
+   *    必须在 TIM6 中断启动前完成（MainTaskInit 由 main.c USER CODE 2 调用）。 */
+  GetImu()->init();
+
+  /* 3. 控制层：绑定单轮电机与 PID、整定参数、清零历史状态 */
   ControlTaskInit();
 
   /* 3. 契约 §8.2：IWDG 上电即计时，耗时初始化完成后立刻喂一次；之后每 1 ms
@@ -49,6 +55,10 @@ void MainTaskInit(void)
 
 void MainTask(void)
 {
+  /* 传感层：1 ms 更新 IMU（读 SPI → 零漂标定/Mahony → roll/pitch/yaw、gyro_z）。
+   * 放在最前面，保证同拍 ControlTask/CommTask 用的是最新姿态。 */
+  GetImu()->update();
+
   /* TODO【WP-12】: 1 ms 控制周期入口：调用 robot->update()，由状态机完成
    * 「读数据 → 迁移 → 生成指令 → 下发」整条链路。本函数保持薄一层，
    * 不要在这里堆业务逻辑。单轮闭环已拆到 ControlTask()（见下）。 */
