@@ -69,7 +69,8 @@ omni-skeleton/                # 本地工作根（Git 仓库顶层 = README.md +
 - 远端仓库：`https://github.com/hjlonglong/omni-skeleton.git`，`main` 分支 = `README.md` + `Chassis/` + `Gimbal/` + `RobotComponents/` 的快照。
 - **白名单推送**：`scripts/push.ps1` 只允许 `README.md`、`Chassis`、`Gimbal`、`RobotComponents` 四个顶层条目进入快照，其它顶层文件（scripts、计划文档、PDF、`*.code-workspace`）一律不推；推送前校验提交树顶层条目，违反白名单直接报错。
 - README 已纳入 Git 版本管理：修改 README 后先 `git add README.md && git commit`，再运行 `push.cmd` 才会同步到远端。
-- `scripts/push.ps1` 还会：`--force-with-lease` 强制覆盖 `origin/main`；推送成功后删除远端除 `main` 外的分支与全部 tag（`-NoCleanRefs` 关闭）。
+- 版本标签：`v0.1.0` 为 P1 里程碑（annotated tag，P1 收口提交）；后续里程碑收口时打 `v0.x.0`，已发布的 tag 不移动。
+- `scripts/push.ps1` 还会：`--force-with-lease` 强制覆盖 `origin/main`；main 推送成功后执行 `git push origin --tags` 把本地 tag 同步到远端；并删除远端除 `main` 外的分支、以及「本地不存在」的远端 tag（`-NoCleanRefs` 关闭这两类清理，本地 tag 仍会推送）。
 - 本仓库历史为简化历史（旧仓库 `D:\rm\大作业\omni_skeleton` 保留完整开发历史），远端被强推改写属预期行为。
 - **不要**在本地 `pull`/`merge` 远端 `main`：远端是无父快照，只用于分发；本地 `main` 才是开发主线。
 - 提交信息规范：`type(scope): 中文简述`，多处改动加 `[both boards]`；正文写动机与验证证据（如 `L0: 677/677 OK, 0 warning`）。
