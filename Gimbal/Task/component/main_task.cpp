@@ -16,8 +16,9 @@
  *  - 云台板没有 ControlTask：底盘板的 ControlTask 是单轮台架任务，云台不要照抄。
  *  - MainTaskInit() 必须在 TIM6 中断启动前调用（见 Core/Src/main.c 的 USER CODE 2），
  *    否则 CAN/SPI 初始化完成前中断就可能触发。
- *  - TODO【WP-10】：本板 CommTask() 仍为空壳，未周期喂 IWDG，上电约 0.6 s 会复位；
- *    联调前需补齐，详见 README「已知限制」。
+ *  - TODO【WP-10】：本板 CommTask() 仍为空壳；周期喂狗暂由 TIM6 回调末尾兜底
+ *    （见文件末尾回调），WP-10 再迁移到 CommTask 末尾统一管理，详见 README
+ *    「已知限制」。
  *******************************************************************************
  *  Copyright (c) 2024 Hello World Team, Zhejiang University.
  *  All Rights Reserved.
@@ -27,6 +28,7 @@
 #include "main_task.hpp"
 
 #include "comm_task.hpp"
+#include "config.hpp"
 #include "imu.hpp"
 #include "ins_imu.hpp"
 #include "iwdg.h"
@@ -47,7 +49,7 @@ void MainTaskInit(void)
   GetImu()->init();
 
   /* 3. IWDG 上电即计时（见 MX_IWDG_Init），阻塞初始化结束后立刻喂一次；
-   *    之后需要周期喂狗，否则约 0.6 s 复位——见文件头 TODO【WP-10】。 */
+   *    运行期喂狗由 TIM6 回调末尾兜底（TODO【WP-10】迁移到 CommTask 末尾）。 */
   (void)HAL_IWDG_Refresh(&hiwdg);
 }
 
@@ -79,4 +81,10 @@ extern "C" void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
   MainTask();
   CommTask();
+
+  /* 临时兜底：CommTask 当前为空壳（WP-10 补齐周期喂狗），先由 1 ms 回调喂住，
+   * 否则 IWDG 约 0.6 s 超时复位。WP-10 后迁移到 CommTask 末尾统一管理。 */
+#if DEBUG_NO_IWDG == 0
+  (void)HAL_IWDG_Refresh(&hiwdg);
+#endif
 }

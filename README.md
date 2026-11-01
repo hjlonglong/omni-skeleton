@@ -18,7 +18,7 @@
 | DBUS 遥控 | ⛔ | `inc/DT7.hpp`、`src/DT7.cpp`、`Core/Src/usart.c` | USART3 + DMA 循环接收已配置，IDLE 帧解析待实现 |
 | 状态机 / 全向轮运动学 | ⛔ | `Instance/component/ins_chassis_iksolver.cpp`、`RobotModules/component/chassis.cpp`、`robot.cpp` | 逆解与状态机尚未接入主循环 |
 | 云台控制 | ⛔ | `Gimbal/Task/component/main_task.cpp`、`Gimbal/RobotModules/component/gimbal.cpp` | 任务层已接入 1 ms 调度与 IMU 更新（WP-06）；云台控制业务待 WP-08，底层 PID/IMU/CAN 与底盘共用 |
-| 看门狗（IWDG） | ✅ | `Core/Src/iwdg.c`、`Task/component/comm_task.cpp` | 初始化后先喂一次、`CommTask` 每周期喂狗，`DEBUG_NO_IWDG` 可关；云台 `CommTask` 仍为空壳（WP-10 补齐，见已知限制） |
+| 看门狗（IWDG） | ✅ | `Core/Src/iwdg.c`、`Task/component/comm_task.cpp` | 初始化后先喂一次、`CommTask` 每周期喂狗，`DEBUG_NO_IWDG` 可关；云台 `CommTask` 仍为空壳，喂狗暂由 1 ms 回调末尾兜底（WP-10 迁移统一） |
 
 ## 完成进度（P1，2026-11-01）
 
@@ -30,7 +30,7 @@
 
 > ⚠️ 调试开关：两板 `TEST_MODE` 当前均为 `0`（交付/正常态）。台架调试单轮时改为 `1`：上电即执行三角波扫掠且无遥控入口，必须车轮离地、禁止落地测试。
 >
-> ⚠️ 已知限制：Gimbal 的 `CommTask()` 仍为空壳、未周期喂 IWDG（WP-10 补齐前上电约 0.6 s 会复位，L2 联调前必须处理）；云台控制业务未实现（WP-08），云台暂不可控。
+> ⚠️ 已知限制：Gimbal 的 `CommTask()` 仍为空壳，周期喂狗暂在 TIM6 回调末尾兜底（WP-10 迁移到 `CommTask` 末尾并统一 `DEBUG_NO_IWDG`）；云台控制业务未实现（WP-08），云台暂不可控。
 
 ## 目录结构
 
