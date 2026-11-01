@@ -1,22 +1,22 @@
 # omni-skeleton — RoboMaster 全向轮步兵电控（双板）
 
 > 本仓库是 2026 赛季 RoboMaster 全向轮步兵的电控工程，基于 Hello World 战队提供的双板骨架二次开发。
-> **本 README 随仓库推送**：远端快照 = `README.md` + `Chassis/` + `Gimbal/` + `RobotComponents/`；`scripts/`、`.vscode/`、`*.jdebug` 等本地工具不推送。
+> **本 README 随仓库推送**：远端快照 = `README.md` + `Chassis/` + `Gimbal/` + `RobotComponents/`。仓库根目录的 `scripts/`、`omni.code-workspace`、根级 `*.jdebug` 等本地文件不推送；板目录内的 `.vscode/*.json`、`Chassis/chassis.jdebug`、`Gimbal/gimbal.jdebug` 已在版本管理中，会随板目录一起推送（见 §2）。
 
 - 代码基线：本地 `main`，远端 `origin/main`（`https://github.com/hjlonglong/omni-skeleton.git`）为 `README + Chassis + Gimbal + RobotComponents` 快照。
-- 计划 / 契约 / 验收文档：`D:\rm\RM步兵电控计划\`（`01_任务分解与一个月计划.md`、`02_接口契约_v1.0.md`、`03_Agent任务卡.md`、`04_验收与调试清单.md`）。
+- 计划 / 契约 / 验收文档：`D:\rm\RM步兵电控计划\`（`00_任务书文本提取.txt`、`01_任务分解与一个月计划.md`、`02_接口契约_v1.0.md`、`03_Agent任务卡.md`、`04_验收与调试清单.md`、`05_一个月计划表.xlsx`）。
 - 旧仓库（全量历史，归档只读）：`D:\rm\大作业\omni_skeleton`。
 
 ---
 
 ## 1. 当前状态（2026-11-01）
 
-阶段 P1「底盘单轮闭环 + IMU 封装」已收口，底盘板具备：CAN 电机收发闭环、PID 类、单轮速度环调试任务、BMI088 + Mahony 姿态解算、1 ms 调度与 IWDG。
+阶段 P1「底盘单轮闭环 + IMU 封装」主体完成：底盘 CAN 电机收发闭环、PID 类、单轮速度环调试任务、1 ms 调度与 IWDG 已完成；IMU 的 Mahony 姿态更新与 `isReady` 收敛判定目前只有 Gimbal 板完整实现，Chassis 板仍为 TODO（见 §10 第 4 条）。
 
 | 模块 | 状态 | 说明 |
 | --- | --- | --- |
 | PID 类 | ✅ 完成 | 两板同源 `inc/pid.hpp` + `src/pid.cpp`（契约 §6.1，md5 一致；主机单测在旧仓库 `tests/host`） |
-| IMU 封装 | ✅ 完成 | BMI088(SPI1) + Mahony；750 帧静止零漂标定、`isReady` 门控；两板同源 |
+| IMU 封装 | 🟡 部分完成 | BMI088(SPI1) + Mahony：750 帧静止零漂标定、`isReady` 门控；Gimbal 完整，Chassis 的 Mahony 更新/收敛判定仍为 TODO（`imu.hpp` 两板同源，`src/imu.cpp` 实现不同，见 §10 第 4 条） |
 | CAN 电机收发 | ✅ 完成（底盘） | 4×M3508：0x201~0x204 反馈解码、0x200 单帧下发；CAN2 双板通讯仅初始化未接入 |
 | ControlTask 单轮 | ✅ 完成 | `TEST_MODE=1` 台架三角波扫掠（±40 rad/s、2 A 限幅、15 s 归零）；`TEST_MODE=0` 零电流兜底 |
 | 1 ms 调度 | ✅ 完成 | TIM6 → `HAL_TIM_PeriodElapsedCallback` → `MainTask → ControlTask → CommTask` |
@@ -25,9 +25,9 @@
 | 双板协议接入 | ⛔ 未开始 | `RobotComponents/gimbal_chassis_comm.*` 已实现 encode/decode，尚未接入两板调度（WP-10） |
 | 状态机 / 单车运动学 | ⛔ 未开始 | WP-12 / WP-11 |
 | 云台控制 | ⛔ 未开始 | WP-08；Gimbal 任务层仍为空壳 |
-| Gimbal IMU | 🟡 代码已实现 | 与底盘同源，但 `Gimbal/Task/component/main_task.cpp` 仍为 TODO，未接入调度 |
+| Gimbal IMU | 🟡 代码已实现 | `Gimbal/src/imu.cpp` 完整（零漂标定、Mahony、`isReady`），但 `Gimbal/Task/component/main_task.cpp` 仍为 TODO，未接入调度 |
 
-> ⚠️ **当前提交处于台架调试态**：`Chassis/inc/config.hpp` 中 `TEST_MODE 1`。上台/交付前必须改回 `0` 并重新编译（见 §9.4）。
+> ⚠️ **当前提交处于台架调试态**：`Chassis/inc/config.hpp` 中 `TEST_MODE 1`（Gimbal 板为 `TEST_MODE 0`）。上台/交付前必须改回 `0` 并重新编译（见 §9.4）。
 
 ---
 
@@ -37,24 +37,30 @@
 omni-skeleton/                # 本地工作根（Git 仓库顶层 = README.md + 三个子目录）
 ├── README.md                 # 本文件（随仓库推送）
 ├── Chassis/                  # 底盘板（RoboMaster C 型开发板，STM32F407IGH6）
-│   ├── Core/                 # CubeMX 生成：main.c / can.c / spi.c / tim.c / iwdg.c / gpio.c、中断
+│   ├── Core/                 # CubeMX 生成：main.c / can.c / spi.c / tim.c / iwdg.c / gpio.c / usart.c / dma.c、
+│   │                         #   stm32f4xx_hal_msp.c / stm32f4xx_it.c 等
 │   ├── Drivers/              # STM32F4 HAL + CMSIS
 │   ├── inc/                  # 应用头文件：config.hpp、pid.hpp、imu.hpp、BMI088.hpp、mahony.hpp、
 │   │                         #   motor_base.hpp、motor_M3508.hpp、motor_DaMiao.hpp、DT7.hpp 等
-│   ├── src/                  # 应用实现：pid.cpp、imu.cpp、HW_can.cpp、motor_*.cpp、ahrs*、pid、RTT 配置等
+│   ├── src/                  # 应用实现：pid.cpp、imu.cpp、mahony.cpp、BMI088.cpp、HW_can.cpp、motor_*.cpp、
+│   │                         #   ahrs_*、tick.cpp、stm32_hal.cpp（Hello World 骨架填充文件）等
 │   ├── Instance/component/   # ins_* 单例层：ins_motor / ins_pid / ins_imu / ins_chassis_iksolver ...
 │   ├── Task/component/       # 任务层：main_task / comm_task / control_task
+│   ├── RobotModules/         # 板级组件层：chassis.{hpp,cpp}、robot.{hpp,cpp}
 │   ├── third_party/          # CMSIS-DSP、Eigen3、SEGGER RTT
+│   ├── .vscode/              # 板级 IntelliSense 配置（已跟踪，随板目录推送）
 │   ├── cmake/                # arm-none-eabi 工具链文件
 │   ├── chassis.jdebug        # SEGGER Ozone 工程（加载 build/omni_chassis.elf）
 │   └── build/                # 构建产物（Git 忽略）：ide/（IntelliSense DB）、omni_chassis.elf
-├── Gimbal/                   # 云台板（同构板级目录，gimbal.jdebug）
+├── Gimbal/                   # 云台板（同构板级目录，gimbal.jdebug；Task 层目前只有 main_task/comm_task）
 ├── RobotComponents/          # 双板共享代码：module_state.hpp、gimbal_chassis_comm.{hpp,cpp}
 │   └── component/
-├── scripts/                  # 本地工具（不推送）：gen_ide_db、push、clean_builds、README
+├── scripts/                  # 本地工具（不推送）：gen_ide_db.cmd/.ps1、push.cmd/.ps1、README.md
 ├── omni.code-workspace       # 多根 VSCode 工作区
-└── test_chassis.jdebug       # 临时调试工程（可删）
+└── test_chassis.jdebug       # 临时调试工程（未跟踪，已被本地 exclude 忽略，可删）
 ```
+
+> 说明：`.gitignore`、`.gitattributes`、`scripts/`、`omni.code-workspace` 等只存在于本地，已被 `.git/info/exclude` 排除、不随仓库推送。因此远端快照里没有忽略规则，克隆后 `build/` 等构建产物会显示为未跟踪，需按需自行忽略。
 
 ---
 
@@ -82,7 +88,7 @@ D:\rm\omni-skeleton\scripts\push.cmd
 | MCU | STM32F407IGH6（168 MHz） | 底盘为 RoboMaster C 型开发板 |
 | CAN1 | PD0/PD1，AF9，1 Mbps | 接 C620 电调 ×4（M3508） |
 | CAN2 | PB5/PB6，AF9，1 Mbps | 预留双板通讯（0x210/0x211） |
-| USART3 | 100000 bps，9 bit（含校验）+ 偶校验 + 1 stop | DBUS 接收（DMA/IDLE） |
+| USART3 | 100000 bps，9 bit（含校验）+ 偶校验 + 1 stop | 预留 DBUS（WP-09）：DMA1_Stream1 循环接收已由 CubeMX 配好，IDLE 解析待实现 |
 | USART1 / USART6 | 115200 bps | 调试/图传等预留 |
 | SPI1 | PB3/SCK、PB4/MISO、PA7/MOSI，软件 CS：PA4(BMI088 acc)、PB0(BMI088 gyro) | 8 bit、MSB、预分频 16 |
 | TIM6 | 1 ms 周期中断 | `tick::GetTickMs()` 时基、任务调度 |
@@ -107,7 +113,7 @@ RobotComponents/component/  →  两板共享类型与帧协议（module_state�
 
 - **参数唯一来源**：`Chassis/inc/config.hpp`、`Gimbal/inc/config.hpp`（公共段保持一致，板级差异单独分区）；业务代码禁止散落魔法数。
 - **单例约定**：`GetXxx()` 内部函数内 `static` 构造，避免全局构造在 HAL/时钟初始化之前运行（契约 §6.3）。
-- **构建口径**：组件库头文件两板同源（PID/IMU 已 md5 校验一致），改动需同步两板。
+- **构建口径**：组件库头文件两板同源（`pid.hpp`、`imu.hpp`、`mahony.hpp`、`BMI088.hpp`、`HW_can.hpp` 及 `pid.cpp`/`mahony.cpp`/`BMI088.cpp` 已 md5 校验一致），实现改动需同步两板；例外是 `src/imu.cpp`（Chassis 缺 Mahony 更新/收敛段，见 §10 第 4 条）。
 
 ### 5.2 1 ms 主循环（底盘）
 
@@ -142,7 +148,7 @@ TIM6 更新中断
 
 ### 6.2 两种构建方式
 
-方式 A（推荐，Python 驱动，自动配置 + 编译，产物复制到 `build/omni_<board>.elf`）：
+方式 A（推荐，Python 驱动：自动 configure + 并行编译，不依赖 ninja 的进程调度）：
 
 ```powershell
 cd D:\rm\omni-skeleton\Chassis
@@ -155,12 +161,16 @@ python D:\rm\RM步兵电控计划\tools\build_embedded.py . --build-subdir build
 cd D:\rm\omni-skeleton\Chassis
 cmake -S . -B build\dev -G Ninja `
   -DCMAKE_MAKE_PROGRAM=D:/ninja-win/ninja.exe `
-  -DCMAKE_TOOLCHAIN_FILE=cmake/gcc-arm-none-eabi.cmake `
+  "-DCMAKE_TOOLCHAIN_FILE=$PWD\cmake\gcc-arm-none-eabi.cmake" `
   -DCMAKE_BUILD_TYPE=Debug
 cmake --build build\dev -j 8
 ```
 
-产物在 `build\dev`（或 `build\omni_chassis.elf`），可直接用 Ozone 加载。
+> - `-DCMAKE_TOOLCHAIN_FILE` 必须传**绝对路径**：CMake 会把相对路径按 build 目录解析，写成 `cmake/gcc-arm-none-eabi.cmake` 会报 `Could not find toolchain file`。
+> - 也可用 `cmake --preset Debug`（`CMakePresets.json` 已配置工具链与 `build/<preset>` 输出目录）。
+> - 若受限环境里 `cmake --build` 派生的 ninja/gcc 子进程卡住（本机 DSH 沙箱的已知现象），改用方式 A。
+
+ELF 由 `CMakeLists.txt` 固定输出到 `<板>/build/omni_<board>.elf`（中间文件在 `build\dev`），可直接用 Ozone 加载。
 
 ### 6.3 基线（2026-11-01，`TEST_MODE=1`）
 
@@ -169,7 +179,8 @@ cmake --build build\dev -j 8
 | Chassis | 677 | ✅ 0 error / 0 warning | 46,988 B | 112 B | 7,960 B | `Chassis/build/omni_chassis.elf` |
 | Gimbal | 678 | ✅ 0 error / 0 warning | 38,840 B | 20 B | 6,900 B | `Gimbal/build/omni_gimbal.elf` |
 
-> 构建目录可随时删除（`build\` 已 Git 忽略）；保留 `build\ide\`（IntelliSense 数据库）即可继续代码补全。全量 Debug 构建约 165 MB/板，不要同时堆积多份。
+> 构建目录可随时删除（`build\` 已 Git 忽略）；保留 `build\ide\`（IntelliSense 数据库）即可继续代码补全。全量 Debug 构建目录约 170 MB/板（2026-11-01 实测），不要同时堆积多份。
+> 基线复现：方式 A、8 线程全量 Debug，Chassis 19.9 s、Gimbal 19.6 s，两板 0 error / 0 warning（编译选项含 `-Wall -Wextra -Wpedantic`，无 `-Werror`）。
 
 ---
 
@@ -182,7 +193,7 @@ cmake --build build\dev -j 8
 D:\rm\omni-skeleton\scripts\gen_ide_db.cmd
 ```
 
-  脚本会对两板执行 CMake configure（`-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`），输出 `<板>/build/ide/compile_commands.json`（Chassis 约 676、Gimbal 约 677 条），不产生编译产物。
+  脚本会重建 `<板>/build/ide`，对两板执行 CMake configure（`-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`），输出 `<板>/build/ide/compile_commands.json`（实测 Chassis 677、Gimbal 678 条），只做 configure、不编译源码。
 - 然后在 VSCode 执行 `C/C++: Reset IntelliSense Database` 并重载窗口。
 - 仍无法跳转时：查看 `C/C++: Log Diagnostics`（确认 compilerPath/compileCommands 被采用）；检查是否装了会抢占 C++ 解析的扩展（如 STM32CubeIDE/clangd 插件），必要时禁用；确认路径不含中文（本仓库已满足）。
 
@@ -197,10 +208,10 @@ D:\rm\omni-skeleton\scripts\gen_ide_db.cmd
 | 变量 | 位置 | 含义 |
 | --- | --- | --- |
 | `g_inited` / `g_start_tick_ms` | `control_task.cpp` | 单轮任务是否初始化 / 扫掠起点 |
-| `g_dbg_target` / `g_dbg_vel` / `g_dbg_out` | `control_task.cpp` | 目标、实测轮速（rad/s）、PID 输出（A）；仅 `TEST_MODE=1` 编译 |
-| `g_motor->vel_` / `curr_` / `angle_` / `temp_` | `Motor`（`ins_motor` 静态实例） | 单轮反馈 |
-| `g_pid->cfg_.out_max` | `Pid` | 应等于 2.0（TEST_MODE=1 时为台架限幅，可验证调试模式） |
-| `g_can_err_instance` / `code` / `esr` / `tsr` / `cnt` | `HW_can.cpp` | CAN 错误快照：`instance` 0=CAN1、1=CAN2、0xFF=其它；`code`=HAL ErrorCode、`esr`/`tsr`=寄存器 |
+| `g_dbg_target` / `g_dbg_vel` / `g_dbg_out` / `g_dbg_elapsed_ms` | `control_task.cpp` | 目标、实测轮速（rad/s）、PID 输出（A）、扫掠已运行时间（ms）；仅 `TEST_MODE=1` 编译 |
+| `g_motor->vel_` / `curr_` / `angle_` | `Motor`（`ins_motor` 静态实例） | 单轮反馈；`temp_` 只在子类 `M3508`，写作 `((M3508*)g_motor)->temp_` |
+| `g_pid->config().out_max`（私有 `cfg_.out_max`） | `Pid` | 应等于 2.0（TEST_MODE=1 时为台架限幅，可验证调试模式）；Ozone 按调试符号可直接展开私有成员 |
+| `g_can_err_instance` / `g_can_err_code` / `g_can_err_esr` / `g_can_err_tsr` / `g_can_err_cnt` | `HW_can.cpp` | CAN 错误快照：`instance` 1=CAN1、2=CAN2、0=尚未发生错误；`code`=HAL ErrorCode、`esr`/`tsr`=寄存器；`cnt`=错误回调累计次数 |
 | `g_can_tx_fail_cnt` | `HW_can.cpp` | 发送失败累计（邮箱满/总线异常） |
 | `hcan1.ErrorCode` / `Instance->ESR` / `TSR` | 外设 | HAL 当前错误码、错误状态寄存器、发送状态寄存器 |
 
@@ -210,7 +221,7 @@ D:\rm\omni-skeleton\scripts\gen_ide_db.cmd
 
 ### 9.1 `TEST_MODE`
 
-- `TEST_MODE 1`：台架/单项调试态。底盘 `ControlTask` 对 1 号轮做三角波速度扫掠（1 s 等待 → ±40 rad/s、80 rad/s²、15 s 后归零），电流限幅 2 A（`kTestWheelCurrentLimit`）。
+- `TEST_MODE 1`：台架/单项调试态。底盘 `ControlTask` 对 `config::kTestWheelIdx = 0`（LF）做三角波速度扫掠（1 s 等待 → 周期 2 s、幅值 ±40 rad/s、斜率 80 rad/s²、15 s 后归零），电流限幅 2 A（`kTestWheelCurrentLimit`）。
 - `TEST_MODE 0`：正常态。`ControlTask` 保持零电流兜底，等待 WP-09/WP-12 接入真实目标。
 - **交付/上台前必须为 0**。改宏后必须重新编译并烧录，`TEST_MODE=1` 时 ELF 无遥控入口，上电即自转，严禁落地测试。
 - 台架流程：车轮离地 → 烧录 → 1 s 等待 → 观察 `g_dbg_*` 曲线（Ozone Live Watch）→ 15 s 自动归零 → 断电。
@@ -221,7 +232,7 @@ D:\rm\omni-skeleton\scripts\gen_ide_db.cmd
 
 ### 9.3 CAN 总线排查
 
-- 典型故障：`hcan1.ErrorCode = 0x00200000`（PARAM = 3 个发送邮箱全满）→ 帧发不出去；`ESR` 中 `BOFF=1`、`LEC=5`（位显性错误）、`TEC` 高位 → 无节点应答（ACK 缺失），通常是硬件层：C620 未上电/未接、总线只接了 CAN_H/CAN_L 两根线而收发器无电、两端各 120 Ω 导致只剩 60 Ω 不匹配、或插错 CAN 口。
+- 典型故障：`hcan1.ErrorCode = 0x00200000`（PARAM = 3 个发送邮箱全满）→ 帧发不出去；`ESR` 中 `BOFF=1`、`LEC=5`（位显性错误）、`TEC` 高位 → 无节点应答（ACK 缺失），通常是硬件层：C620 未上电/未接、总线只接了 CAN_H/CAN_L 两根线而收发器无电、终端电阻缺失（两端各 120 Ω 时两端间实测约 60 Ω 才正常；若测得约 120 Ω 说明少了一个终端）、或插错 CAN 口。
 - 固件侧已开 `AutoBusOff = ENABLE`（bus-off 后自动恢复）、CAN 错误中断（`CAN_IT_ERROR`）与 `HAL_CAN_ErrorCallback` 错误快照；`CAN_Send_Msg` 失败会记录并释放邮箱，避免 3 个邮箱永久占满。
 - 若怀疑收发器/MCU 侧，可临时把 CAN 设为 `LOOPBACK` 自检；正常模式 `ESR.BOFF=0`、`TXOK` 置位才算通。
 
@@ -237,12 +248,14 @@ D:\rm\omni-skeleton\scripts\gen_ide_db.cmd
 
 1. **CAN 无 ACK**（`0x200` 发不出去、电机不转）：固件已加自动 bus-off 恢复与错误快照，硬件接线仍需逐项确认（C620 供电、60 Ω 终端、CAN1 口、共地）。
 2. **`TEST_MODE=1` 在最近提交中**（台架态）：交付前改回 0 并重新验证。
-3. Gimbal 任务层为空（WP-08 未开始）；Gimbal IMU 代码已编译但未 `init/update`。
-4. `RobotComponents` 协议帧未接入调度（WP-10），双板在线状态尚未建立。
-5. `Chassis/inc/Pid.h` 为用户遗留旧版 PID 头文件，与 `pid.hpp` 重复，可删除或迁移。
-6. `test_chassis.jdebug` 为临时调试文件，未跟踪，可删。
-7. TODO 统计：Chassis 约 36 处、Gimbal 约 43 处（`grep TODO`）。
-8. 主机单测（PID/IMU 纯函数）目前只在旧仓库 `tests/host`，待迁移到本仓库后纳入 CI 式验证。
+3. Gimbal 任务层为空（WP-08 未开始）；Gimbal IMU 代码完整，但任务层尚未 `init/update`。
+4. **Chassis IMU 姿态更新未实现**：`Chassis/src/imu.cpp` 的 `update()` 只做开机零漂标定，STEP5（Mahony 更新 / 欧拉角）与 STEP6（`ready_` 收敛判定）仍是 TODO，`isReady()` 在底盘板上恒为 `false`；Gimbal 侧已完整。计划 WP-06 要求两板同步，属 P1 遗留（当前无消费方，不影响现有单轮台架）。
+5. `RobotComponents` 协议帧未接入调度（WP-10），双板在线状态尚未建立。
+6. `Chassis/inc/Pid.h` 为用户遗留旧版 PID 头文件，与 `pid.hpp` 重复，可删除或迁移。
+7. `test_chassis.jdebug` 为临时调试文件，未跟踪（已被本地 `.git/info/exclude` 排除），可删。
+8. TODO 统计（应用目录 `inc/src/Instance/Task/RobotModules` 内的 `TODO` 行）：Chassis 约 36 处、Gimbal 约 43 处。
+9. 主机单测（PID/IMU 纯函数）目前只在旧仓库 `tests/host`，待迁移到本仓库后纳入 CI 式验证。
+10. **忽略规则未入库**：`.gitignore`/`.gitattributes` 被 `.git/info/exclude` 排除、不随快照推送，克隆远端后 `build/` 等产物会显示为未跟踪；如需干净 clone 需把忽略规则纳入跟踪。
 
 ### 后续路线（对应计划 01）
 
