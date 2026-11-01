@@ -29,10 +29,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-/* TODO【新人任务】:
- * 在此 include 任务层头文件，例如 #include "main_task.hpp"，
- * 它声明了 extern "C" 的 MainTaskInit(void) / MainTask(void)。
- */
+#include "main_task.hpp" /* extern "C"：MainTaskInit(void) / MainTask(void) */
 
 /* USER CODE END Includes */
 
@@ -115,12 +112,11 @@ int main(void)
   HAL_TIM_Base_Start_IT(&htim4);
   HAL_GPIO_WritePin(GPIOH, GPIO_PIN_11, GPIO_PIN_RESET);
   /* WP-02：此处原有重复的 MX_IWDG_Init() 调用已删除（IWDG 已在 MX_*_Init 区启动） */
+  /* WP-06：任务层一次性初始化（通讯 + IMU），必须在 TIM6 1 ms 中断启动前完成；
+   * 此后的控制与通讯周期由 htim6 中断驱动（见 Task/main_task.cpp）。 */
+  MainTaskInit();
   HAL_TIM_Base_Start_IT(&htim2);
   HAL_TIM_Base_Start_IT(&htim6);
-  /* TODO【新人任务】:
-   * 在进入 while(1) 之前调用 MainTaskInit()，完成电机 / IMU / 通讯 / IWDG 的
-   * 一次性初始化。此后的控制与通讯周期由 htim6 中断驱动（见 Task/main_task.cpp）。
-   */
 
   /* USER CODE END 2 */
 
