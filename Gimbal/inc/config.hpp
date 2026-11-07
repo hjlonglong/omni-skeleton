@@ -58,6 +58,7 @@ inline constexpr float kYawRateMax = 2.5f;   ///< rad/s，yaw 关节速度限幅
 inline constexpr float kPitchRateMax = 1.5f; ///< rad/s，pitch 关节速度限幅
 inline constexpr float kYawTorqueMax = 3.0f;   ///< N·m，yaw 力矩限幅（安全）
 inline constexpr float kPitchTorqueMax = 2.5f; ///< N·m，pitch 力矩限幅（安全）
+inline constexpr float kPitchLimitMargin = 0.10f;  ///< rad，pitch 反馈越限裕度（状态机故障判定）
 
 /* ---- 云台位置环 PID 初值（输入角度误差 rad，输出目标关节速度 rad/s）---- */
 inline constexpr float kPidYawAngleKp = 8.0f;    ///< TODO(调参)

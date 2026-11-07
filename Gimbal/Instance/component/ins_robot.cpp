@@ -1,12 +1,14 @@
 /**
  *******************************************************************************
- * @file      :ins_robot.cpp
- * @brief     :
+ * @file      : ins_robot.cpp
+ * @brief     : 云台板顶层状态机与云台运动模块实例化
  * @history   :
  *  Version     Date            Author          Note
- *  V0.9.0      yyyy-mm-dd      <author>        1. <note>
+ *  V1.0.0      2026-11-07      Agent C         1. WP-13/16：Robot/Gimbal 单例
  *******************************************************************************
  * @attention :
+ *  - 函数内 static：首次调用（Robot::init 内）构造，构造顺序安全；
+ *    运行期无动态内存（契约 §6.3 / §10）。
  *******************************************************************************
  *  Copyright (c) 2024 Hello World Team, Zhejiang University.
  *  All Rights Reserved.
@@ -14,34 +16,20 @@
  */
 /* Includes ------------------------------------------------------------------*/
 #include "ins_robot.hpp"
-/* Private macro -------------------------------------------------------------*/
-/* Private constants ---------------------------------------------------------*/
-/* Private types -------------------------------------------------------------*/
-/* Private variables ---------------------------------------------------------*/
-/* External variables --------------------------------------------------------*/
-/* Private function prototypes -----------------------------------------------*/
+
+#include "gimbal.hpp"
+#include "robot.hpp"
+
 /* Exported function definitions ---------------------------------------------*/
-robot::Robot *GetRobot() {
-  /* TODO【新人任务】:
-   * 返回本板顶层状态机 robot::Robot 单例。
-   *
-   * 你要做：
-   *   1. 在本文件静态定义一个 robot::Robot 对象（静态存储期，程序启动即构造）。
-   *   2. 返回它的地址。
-   *
-   * 约束 / 提示：
-   *   - robot::Robot 类的定义由你在 RobotModules/component/robot.hpp 补全（见该文件 TODO），
-   *     本文件只负责实例化并返回地址。
-   */
-  return nullptr;
+
+robot::Robot *GetRobot()
+{
+  static robot::Robot robot;
+  return &robot;
 }
 
-robot::Gimbal *GetGimbal() {
-  /* TODO【新人任务】:
-   * 返回 Gimbal 模块 robot::Gimbal 单例，做法同 GetRobot()。
-   * robot::Gimbal 类定义由你在 RobotModules/component/gimbal.hpp 补全。
-   */
-  return nullptr;
+robot::Gimbal *GetGimbal()
+{
+  static robot::Gimbal gimbal;
+  return &gimbal;
 }
-
-/* Private function definitions ----------------------------------------------*/

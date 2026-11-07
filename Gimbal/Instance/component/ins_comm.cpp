@@ -1,12 +1,16 @@
 /**
  *******************************************************************************
- * @file      :ins_comm.cpp
- * @brief     :
+ * @file      : ins_comm.cpp
+ * @brief     : 云台板遥控器解码对象（本板无 DBUS 链路，返回 nullptr）
  * @history   :
  *  Version     Date            Author          Note
- *  V0.9.0      yyyy-mm-dd      <author>        1. <note>
+ *  V1.0.0      2026-11-07      Agent C         1. WP-16：明确本板无 DBUS，遥控状态经 C2G
  *******************************************************************************
  * @attention :
+ *  - 云台板硬件未接 DBUS 串口，遥控在线状态/摇杆量由底盘板解析后经 C2G 帧（0x210）
+ *    下发（02_接口契约_v1.0.md §3.2、§7.1、§7.4）。
+ *  - 因此本接口恒返回 nullptr；Robot 只在 SDK 层调用它做注册，不解引用。
+ *    后续若云台板直连遥控器，再在此返回函数内 static DT7 实例即可，上层无需改动。
  *******************************************************************************
  *  Copyright (c) 2024 Hello World Team, Zhejiang University.
  *  All Rights Reserved.
@@ -14,26 +18,11 @@
  */
 /* Includes ------------------------------------------------------------------*/
 #include "ins_comm.hpp"
-/* Private macro -------------------------------------------------------------*/
-/* Private constants ---------------------------------------------------------*/
-/* Private types -------------------------------------------------------------*/
-/* Private variables ---------------------------------------------------------*/
-/* External variables --------------------------------------------------------*/
-/* Private function prototypes -----------------------------------------------*/
+
 /* Exported function definitions ---------------------------------------------*/
-hello_world::remote_control::DT7 *GetRemoteControl() {
-  /* TODO【新人任务】:
-   * 返回遥控器解码对象（DT7）单例。
-   *
-   * 你要做：
-   *   1. 静态定义一个 hello_world::remote_control::DT7 对象并返回其地址。
-   *   2. （可选）如果你自建了其它需要共享的通信对象，也在此暴露访问器。
-   *
-   * 约束 / 提示：
-   *   - DT7 只负责解码 18 字节 DBUS，串口收发在 Task/component/comm_task.cpp 完成。
-   *   - 解码入口：Task/component/comm_task.cpp 的 HAL_UARTEx_RxEventCallback。
-   */
+
+hello_world::remote_control::DT7 *GetRemoteControl()
+{
+  /* 云台板无 DBUS 接收：遥控状态经底盘板 C2G 帧下发，本板不解码 DBUS。 */
   return nullptr;
 }
-
-/* Private function definitions ----------------------------------------------*/

@@ -1,12 +1,16 @@
 /**
  *******************************************************************************
- * @file      :ins_chassis_gimbal_comm.cpp
- * @brief     :
+ * @file      : ins_chassis_gimbal_comm.cpp
+ * @brief     : 云台板双板通讯对象实例化（GimbalChassisComm）
  * @history   :
  *  Version     Date            Author          Note
- *  V0.9.0      yyyy-mm-dd      <author>        1. <note>
+ *  V1.0.0      2026-11-07      Agent C         1. WP-16：G2C/C2G 双板帧单例
  *******************************************************************************
  * @attention :
+ *  - 云台板：CodePart::Gimbal，发送 G2C(config::kCanIdG2C = 0x211)，
+ *    接收 C2G(config::kCanIdC2G = 0x210)（契约 §3.2 / §4.1）。
+ *  - 函数内 static：CommTaskInit 中首次调用完成构造，保证 CAN 接收中断打开前
+ *    last_rx_tick_ 已初始化为当前 tick（首帧到达前按离线处理）。
  *******************************************************************************
  *  Copyright (c) 2024 Hello World Team, Zhejiang University.
  *  All Rights Reserved.
@@ -14,29 +18,16 @@
  */
 /* Includes ------------------------------------------------------------------*/
 #include "ins_chassis_gimbal_comm.hpp"
-#include "gimbal_chassis_comm.hpp"
-/* Private macro -------------------------------------------------------------*/
-/* Private constants ---------------------------------------------------------*/
-/* Private types -------------------------------------------------------------*/
-/* Private variables ---------------------------------------------------------*/
-/* External variables --------------------------------------------------------*/
-/* Private function prototypes -----------------------------------------------*/
-/* Exported function definitions ---------------------------------------------*/
-robot::GimbalChassisComm *GetGimbalChassisComm() {
-  /* TODO【新人任务】:
-   * 返回本板双板通讯对象单例。
-   *
-   * 你要做：
-   *   1. 静态定义一个 robot::GimbalChassisComm 对象，构造时传入：
-   *      - CodePart：本板是 Chassis 还是 Gimbal（决定编解码方向）。
-   *      - tx_id / rx_id：本板发送帧 / 接收帧的 CAN 标准帧 ID（两板协商一致）。
-   *   2. 返回其地址。
-   *
-   * 约束 / 提示：
-   *   - 类定义在 RobotComponents/component/gimbal_chassis_comm.hpp（encode/decode 由你实现）。
-   *   - CAN ID 建议从 0x200 之后的空闲标准帧 ID 里选，避开电机反馈 ID。
-   */
-  return nullptr;
-}
 
-/* Private function definitions ----------------------------------------------*/
+#include "config.hpp"
+#include "gimbal_chassis_comm.hpp"
+
+/* Exported function definitions ---------------------------------------------*/
+
+robot::GimbalChassisComm *GetGimbalChassisComm()
+{
+  static robot::GimbalChassisComm comm(
+      robot::GimbalChassisComm::CodePart::Gimbal, config::kCanIdG2C,
+      config::kCanIdC2G);
+  return &comm;
+}
