@@ -13,8 +13,8 @@
  *  - TEST_MODE == 1（台架，车轮必须离地）：目标来自 CalcTestSweepTargetRadS()
  *    三角波扫掠，电流限幅 kTestWheelCurrentLimit（2 A）；超过
  *    kTestWheelDurationMs 后目标归零。
- *  - TEST_MODE == 0：安全兜底，保持零电流；接入遥控/状态机（WP-09/WP-12）后
- *    由状态机给出目标，本任务只做闭环。
+ *  - TEST_MODE == 0（交付态）：控制权归 Robot/Chassis（WP-12），本任务不覆盖
+ *    电机指令（只在 Ozone 里提供观测值），避免把状态机同拍下发的电流清零。
  *  - TODO【WP-10/WP-12】：增加反馈离线监督（>100 ms 无反馈时零电流 + 状态机
  *    降级）；当前单轮台架阶段先用 2 A 限幅 + 离地测试兜底。
  *******************************************************************************
@@ -141,11 +141,11 @@ void ControlTask(void)
   (void)g_motor->setInput(out);
   g_dbg_out = out;
 #else
-  /* ---- 正常模式：安全兜底 ----
-   * 遥控（WP-09）与状态机/轮速分配（WP-12）尚未接入，当前无目标来源，保持
-   * 零电流，保证任何情况下不会无输入输出力矩。 */
+  /* ---- 交付态（TEST_MODE == 0）：控制权归 Robot/Chassis ----
+   * 本任务不得覆盖电机指令：状态机刚在 MainTask() 里下发的电流如果被这里同一拍
+   * 清零，底盘就永远动不了。因此只保留观测（Ozone 可看 vel/PID 状态），
+   * 不再调用 setInput()。 */
   (void)vel;
-  (void)g_motor->setInput(0.0f);
 #endif
 }
 

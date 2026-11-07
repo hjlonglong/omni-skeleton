@@ -13,6 +13,10 @@
  * @history   :
  *  Version     Date            Author          Note
  *  V1.0.0      2026-10-20      Lead            1. 初版：两板通用参数 + 底盘板参数
+ *  V1.1.0      2026-11-07      Agent B         1. WP-12/14/17：新增 O 型全向轮几何/逆解
+ *                                                常量（四角位置、安装角、方向符号、δ 符号）、
+ *                                                回中阈值/模式去抖、跟随环微分低通、
+ *                                                C2G v1.1 云台目标生成速率与 pitch 软限位
  *******************************************************************************
  * @attention :
  *  - 所有 magic number 必须放这里；改参数只改本文件（禁止在业务代码里散落常量）。
@@ -58,12 +62,40 @@ inline constexpr int8_t kWheelDir[4] = {1, 1, 1, 1};          ///< TODO(硬件):
 inline constexpr float kMaxWheelCurrent = 10.0f;              ///< A，调试期电流限幅
 inline constexpr float kMaxWheelRadS = 800.0f;                ///< rad/s，轮速限幅
 
-/* ---- 麦轮几何（45° 滚子，标准 X 型布置）---- */
-inline constexpr float kWheelRadius = 0.076f;        ///< m，RM 标准 76 mm 轮（⚠️ 默认假设）
-inline constexpr float kHalfWheelbase = 0.19f;       ///< m，轴距一半（TODO(硬件): 卷尺实测）
-inline constexpr float kHalfTrack = 0.19f;           ///< m，轮距一半（TODO(硬件): 卷尺实测）
-inline constexpr float kMecanumK = kHalfWheelbase + kHalfTrack;  ///< L+W，逆解旋转项
-inline constexpr int8_t kRotationSign = 1;           ///< TODO(硬件): 逆解自转项符号（实车验证）
+/* ---- 轮电机索引数量（各模块统一用该常量，避免魔法数）---- */
+inline constexpr int kWheelNum = 4;  ///< 轮电机数量（索引 LF, LB, RB, RF）
+
+/* ---- 底盘几何（v1.1：O 型全向轮，四轮驱动方向沿以车体中心为圆心的切线）----
+ * 默认假设（TODO(硬件)）：轮心位于四角 (kHalfWheelbase, kHalfTrack)（x 前 / y 左），
+ * 驱动方向与车体 x 轴夹角 α：LF=135°、LB=225°、RB=315°、RF=45°（切线方向）。
+ * 若实车为其它安装方式，只改下面四角数组即可（逆解公式为通用形式，见
+ * Chassis/inc/chassis_ik_solver.hpp）；角度符号/方向由 kWheelSign 吸收。 */
+inline constexpr float kPi = 3.14159265358979f;  ///< 圆周率（本板局部常量）
+inline constexpr float kHalfWheelbase = 0.19f;   ///< m，轮心到中心 x 向投影（TODO(硬件): 卷尺实测）
+inline constexpr float kHalfTrack = 0.19f;       ///< m，轮心到中心 y 向投影（TODO(硬件): 卷尺实测）
+inline constexpr float kWheelRadius = 0.076f;    ///< m，RM 标准 76 mm 轮（⚠️ 默认假设）
+/* 四轮轮心位置（车体系，x 前 y 左），索引顺序 LF, LB, RB, RF */
+inline constexpr float kWheelPosX[4] = {kHalfWheelbase, -kHalfWheelbase,
+                                        -kHalfWheelbase, kHalfWheelbase};
+inline constexpr float kWheelPosY[4] = {kHalfTrack, kHalfTrack,
+                                        -kHalfTrack, -kHalfTrack};
+/* 四轮驱动方向角 α（车体系，从 +x 逆时针量，rad），默认 O 型切线布置 */
+inline constexpr float kWheelMountAngleRad[4] = {3.0f * kPi / 4.0f, 5.0f * kPi / 4.0f,
+                                                 7.0f * kPi / 4.0f, kPi / 4.0f};
+/* 每轮逆解输出符号（±1，TODO(硬件): 单轮正电流观察车体等效方向后标定；与 kWheelDir 分工：
+ * kWheelDir 校正电机电气正方向，kWheelSign 校正轮系安装方向，二者不要同时翻同一轮） */
+inline constexpr int8_t kWheelSign[4] = {1, 1, 1, 1};
+/* δ 符号：δ = wrapPi(kDeltaSign * G2C.yaw_joint)。契约 §1.2 的 δ 变换公式按契约原文实现，
+ * 实车转云台验证若方向相反，只改此符号（TODO(硬件)，契约 §1.2「符号以实车调试为准」）。 */
+inline constexpr int8_t kDeltaSign = 1;
+
+/* ---- 麦轮兼容常量（骨架遗留，供对照/回退；v1.1 O 型轮逆解不再使用）---- */
+inline constexpr float kMecanumK = kHalfWheelbase + kHalfTrack;  ///< L+W，麦轮旋转项
+inline constexpr int8_t kRotationSign = 1;           ///< TODO(硬件): 麦轮逆解自转项符号
+
+/* ---- 状态机/遥控输入（v1.1）---- */
+inline constexpr float kStickCenterTol = 0.1f;    ///< 摇杆回中判定阈值（契约 §7.1：|摇杆|<0.1）
+inline constexpr uint32_t kModeDebounceMs = 30;   ///< ms，左拨杆模式切换去抖（契约 §7.2 小陀螺 ≥30 ms）
 
 /* ---- 速度限幅（云台系）---- */
 inline constexpr float kMaxVxVy = 1.5f;         ///< m/s，平移速度限幅
@@ -83,6 +115,14 @@ inline constexpr float kPidFollowKp = 10.0f;       ///< TODO(调参)
 inline constexpr float kPidFollowKi = 0.0f;       ///< TODO(调参)
 inline constexpr float kPidFollowKd = 0.1f;       ///< TODO(调参)
 inline constexpr float kPidFollowIntegMax = kFollowWMax;
+inline constexpr float kPidFollowDlpfAlpha = 0.2f; ///< 跟随环微分一阶低通强度 [0,1]（TODO(调参)）
+
+/* ---- C2G v1.1 云台目标生成（契约 §3.2：底盘板把遥控换算成 gimbal_yaw_target /
+ * gimbal_pitch_target；云台板消费）---- */
+inline constexpr float kGimbalYawRateMax = 2.5f;    ///< rad/s，云台 yaw 目标角速率上限（TODO(调参)）
+inline constexpr float kGimbalPitchRateMax = 1.5f;  ///< rad/s，云台 pitch 目标角速率上限（TODO(调参)）
+inline constexpr float kGimbalPitchMin = -0.35f;    ///< rad，pitch 软限位下限（TODO(硬件): 与云台板 config 对齐）
+inline constexpr float kGimbalPitchMax = 0.55f;     ///< rad，pitch 软限位上限（TODO(硬件): 与云台板 config 对齐）
 
 /* ---- TEST_MODE 1：单轮台架扫掠（仅车轮离地调试；交付前 TEST_MODE 必须为 0）---- */
 inline constexpr int kTestWheelIdx = 0;                  ///< 被测轮索引（0=LF,1=LB,2=RB,3=RF）

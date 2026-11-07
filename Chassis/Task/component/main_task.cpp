@@ -6,17 +6,22 @@
  *  Version     Date            Author          Note
  *  V0.9.0      yyyy-mm-dd      <author>        1. <note>
  *  V1.0.0      2026-10-21      Lead            1. 实现 TIM6 1 ms 中断分发与
- *                                                 MainTaskInit：CommTask +
- *                                                 ControlTask（单轮控制）接入
+ *                                                MainTaskInit：CommTask +
+ *                                                ControlTask（单轮控制）接入
+ *  V1.1.0      2026-11-07      Agent B         1. WP-12/15/17：MainTask 接入
+ *                                                Robot::update（整车状态机），
+ *                                                TEST_MODE==1 时控制权归
+ *                                                ControlTask（台架扫掠）
  *******************************************************************************
  * @attention :
  *  - 1 ms 调度顺序：MainTask() → ControlTask() → CommTask()。
- *    ControlTask 先算出发给电调的输入，CommTask 再把同一拍的 0x200 帧发出，
- *    避免电机指令晚一拍。
- *  - MainTask() 保留给整车状态机（WP-12：robot->update()），当前为空，
- *    符合"任务层保持薄"的约定。
+ *    MainTask 先跑整车状态机（含轮速环输出），ControlTask 仅在台架模式生效，
+ *    CommTask 在同一拍把 0x200 / 0x210 帧发出，避免电机指令晚一拍。
+ *  - TEST_MODE == 1（台架）时 MainTask 只更新 IMU、不跑 Robot（避免状态机与单轮
+ *    扫掠抢控制权）；TEST_MODE == 0（交付）时控制权全归 Robot/Chassis。
  *  - MainTaskInit() 必须在 TIM6 中断启动前调用（main.c USER CODE 2），
- *    否则中断可能在 CAN 初始化完成前触发。
+ *    否则中断可能在 CAN/DBUS 初始化完成前触发。
+ *  - 本函数保持薄一层：业务逻辑都在 Robot/Chassis/RobotModules 里。
  *******************************************************************************
  *  Copyright (c) 2024 Hello World Team, Zhejiang University.
  *  All Rights Reserved.
@@ -26,42 +31,55 @@
 #include "main_task.hpp"
 
 #include "comm_task.hpp"
+#include "config.hpp"
 #include "control_task.hpp"
 #include "imu.hpp"
 #include "ins_imu.hpp"
+#include "ins_robot.hpp"
 #include "iwdg.h"
+#include "robot.hpp"
 #include "stm32f4xx_hal.h"
 #include "tim.h"
 
 /* Exported function definitions ---------------------------------------------*/
 void MainTaskInit(void)
 {
-  /* 1. 通讯层：触发 Instance 实例化电机、配置 CAN 滤波器并启动收发中断 */
+  /* 1. 通讯层：触发 Instance 实例化电机/遥控/双板协议，配置 CAN 滤波器 + 收发
+   *    中断 + DBUS 空闲 DMA 接收。 */
   CommTaskInit();
 
   /* 2. 传感层：实例化 Imu 并初始化 BMI088（SPI1 + 片选），阻塞数 ms；
    *    必须在 TIM6 中断启动前完成（MainTaskInit 由 main.c USER CODE 2 调用）。 */
   GetImu()->init();
 
-  /* 3. 控制层：绑定单轮电机与 PID、整定参数、清零历史状态 */
-  ControlTaskInit();
+  /* 3. 控制层：创建 Robot/Chassis 单例，绑定底盘、IMU、双板通讯、遥控器与
+   *    4 轮电机/轮速环 PID，并把跟随环 PID 按 config 整定。 */
+  GetRobot()->init();
 
-  /* 3. 契约 §8.2：IWDG 上电即计时，耗时初始化完成后立刻喂一次；之后每 1 ms
+#if TEST_MODE == 1
+  /* 4. 台架模式：绑定单轮电机与 PID（扫掠目标在 ControlTask 里生成）。 */
+  ControlTaskInit();
+#endif
+
+  /* 5. 契约 §8.2：IWDG 上电即计时，耗时初始化完成后立刻喂一次；之后每 1 ms
    *    在 CommTask() 末尾刷新（DEBUG_NO_IWDG==1 时停止喂狗，仅限台架调试）。 */
   (void)HAL_IWDG_Refresh(&hiwdg);
-
-  /* TODO【WP-09】: 遥控器 DBUS 接收启动在 CommTaskInit 内补齐。 */
 }
 
 void MainTask(void)
 {
   /* 传感层：1 ms 更新 IMU（读 SPI → 零漂标定/Mahony → roll/pitch/yaw、gyro_z）。
-   * 放在最前面，保证同拍 ControlTask/CommTask 用的是最新姿态。 */
+   * 放在最前面，保证同拍 Robot/CommTask 用的是最新姿态。 */
   GetImu()->update();
 
-  /* TODO【WP-12】: 1 ms 控制周期入口：调用 robot->update()，由状态机完成
-   * 「读数据 → 迁移 → 生成指令 → 下发」整条链路。本函数保持薄一层，
-   * 不要在这里堆业务逻辑。单轮闭环已拆到 ControlTask()（见下）。 */
+#if TEST_MODE == 1
+  /* 台架模式：控制权归 ControlTask（单轮三角波扫掠），不跑整车状态机；
+   * C2G 遥测保持初始值（life_state=Dead），云台板据此不会动作。 */
+#else
+  /* 交付模式：整车状态机（遥控解码 → 三态迁移 → 模式/δ 变换 → 逆解 →
+   * 4 轮速度环 → setInput）每 1 ms 跑一次。 */
+  GetRobot()->update();
+#endif
 }
 
 /* Private function definitions ----------------------------------------------*/

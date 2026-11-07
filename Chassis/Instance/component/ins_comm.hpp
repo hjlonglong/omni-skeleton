@@ -27,4 +27,14 @@
 /* 获取遥控器解码对象（DT7）单例。 */
 hello_world::remote_control::DT7 *GetRemoteControl();
 
+namespace hello_world {
+namespace remote_control {
+/* 刷新遥控在线时间戳：UART 空包回调在成功解包 18 字节后调用
+ * （Task/component/comm_task.cpp）。收到第一帧前 IsRemoteOnline() 为 false。 */
+void NotifyRemoteRx();
+/* 距最近一次成功解包是否超过 config::kRemoteOfflineThresMs（回绕安全）。 */
+bool IsRemoteOnline();
+}  // namespace remote_control
+}  // namespace hello_world
+
 #endif /* CHASSIS_INSTANCE_INS_COMM_HPP_ */

@@ -1,12 +1,15 @@
 /**
  *******************************************************************************
  * @file      :ins_chassis_iksolver.cpp
- * @brief     :
+ * @brief     :底盘逆解器实例（O 型全向轮，几何参数来自 config.hpp）
  * @history   :
  *  Version     Date            Author          Note
- *  V0.9.0      yyyy-mm-dd      <author>        1. <note>
+ *  V1.0.0      2026-11-07      Agent B         1. WP-12/14/17：逆解器单例
  *******************************************************************************
  * @attention :
+ *  - 逆解算法在 Chassis/inc/chassis_ik_solver.hpp（纯头文件、无 HAL 依赖）。
+ *  - 几何参数（轮半径/四角位置/安装角/方向符号）全部来自 config.hpp，本文件只做
+ *    函数内 static 实例化（契约 §6.3：不做全局对象）。
  *******************************************************************************
  *  Copyright (c) 2024 Hello World Team, Zhejiang University.
  *  All Rights Reserved.
@@ -14,28 +17,16 @@
  */
 /* Includes ------------------------------------------------------------------*/
 #include "ins_chassis_iksolver.hpp"
-/* Private macro -------------------------------------------------------------*/
-/* Private constants ---------------------------------------------------------*/
-/* Private types -------------------------------------------------------------*/
-/* Private variables ---------------------------------------------------------*/
-/* External variables --------------------------------------------------------*/
-/* Private function prototypes -----------------------------------------------*/
+
+#include "chassis_ik_solver.hpp"
+#include "config.hpp"
+
 /* Exported function definitions ---------------------------------------------*/
-hello_world::chassis_ik_solver::ChassisIkSolver *GetChassisIkSolver() {
-  /* TODO【新人任务】:
-   * 返回底盘逆解器单例。
-   *
-   * 你要做：
-   *   1. 若把运动学逆解独立成类，在此静态定义并返回地址（类名 / 命名空间可自行调整，
-   *      同步改本文件返回类型）。
-   *   2. 若选择把逆解直接写在 robot::Chassis 里，可让本函数返回 nullptr 并在 Chassis
-   *      内部完成解算，同时删除本文件对该类的依赖。
-   *
-   * 约束 / 提示：
-   *   - 逆解目标：底盘期望速度 (vx, vy, w) → 各轮目标轮速（麦克纳姆）/ 轮速+舵角（舵向）。
-   *   - 逆解公式请自行推导，可参考公开的麦克纳姆轮逆运动学资料。
-   */
-  return nullptr;
+hello_world::chassis_ik_solver::ChassisIkSolver *GetChassisIkSolver()
+{
+  static hello_world::chassis_ik_solver::ChassisIkSolver solver(
+      config::kWheelRadius);
+  return &solver;
 }
 
 /* Private function definitions ----------------------------------------------*/

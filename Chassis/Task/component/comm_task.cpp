@@ -1,20 +1,29 @@
-/*
- * @Author: miunoki 13567781025@163.com
- * @Date: 2026-09-19 15:11:39
- * @LastEditors: miunoki 13567781025@163.com
- * @LastEditTime: 2026-09-19 21:14:38
- * @FilePath: \omni_skeleton\Chassis\Task\component\comm_task.cpp
- * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
- */
 /**
  *******************************************************************************
  * @file      :comm_task.cpp
- * @brief     :
+ * @brief     :底盘通讯任务：电机帧/双板帧 CAN 收发 + 遥控 DBUS 接收 + IWDG 喂狗
  * @history   :
  *  Version     Date            Author          Note
  *  V0.9.0      yyyy-mm-dd      <author>        1. <note>
+ *  V1.0.0      2026-10-21      Lead            1. CAN 收发通道：0x200 单帧发送、
+ *                                                CAN1/CAN2 滤波器与中断启动
+ *  V1.1.0      2026-11-07      Agent B         1. WP-09/10/15/17：DBUS 18 字节空闲+
+ *                                                DMA 接收、C2G 双板帧每周期发送、
+ *                                                IWDG 1 ms 链末喂狗
  *******************************************************************************
  * @attention :
+ *  - CommTask() 运行在 TIM6 1 ms 中断里，由 main_task.cpp 的 TIM6 回调调用；
+ *    每周期必发电机帧与 C2G 帧（即使全 0），电调/云台板据此判在线。
+ *  - 发送顺序保持「先算后发」：MainTask（IMU/状态机）→ CommTask。
+ *  - 接收解码全部在中断回调里：CAN 帧由 src/HW_can.cpp 按 StdId 分发
+ *    （电机 decode / G2C 双板帧 decode），本文件只负责 DBUS 串口接收；
+ *    不要在 CommTask 里轮询接收。
+ *  - DBUS：USART3 空闲 + DMA 接收 18 字节。Core/Src/usart.c 中 RX DMA 配置为
+ *    CIRCULAR，TC 时 HAL 回调 Size == kRcRxDataLen（18），返回后自动继续接收，
+ *    无需重启；若改为 NORMAL 模式，必须在此回调末尾重新调用
+ *    HAL_UARTEx_ReceiveToIdle_DMA()。
+ *  - IWDG 已在 main.c 的 MX_IWDG_Init() 启动（契约 §8.2），只能在本任务末尾喂狗；
+ *    DEBUG_NO_IWDG == 1 时停喂（仅限台架 + 调试器，交付态必须为 0）。
  *******************************************************************************
  *  Copyright (c) 2024 Hello World Team, Zhejiang University.
  *  All Rights Reserved.
@@ -23,28 +32,45 @@
 /* Includes ------------------------------------------------------------------*/
 #include "comm_task.hpp"
 
+#include "DT7.hpp"
 #include "HW_can.hpp"
 #include "can.h"
 #include "config.hpp"
+#include "gimbal_chassis_comm.hpp"
+#include "ins_chassis_gimbal_comm.hpp"
+#include "ins_comm.hpp"
 #include "ins_motor.hpp"
 #include "iwdg.h"
+#include "usart.h"
 
 /* Private constants ---------------------------------------------------------*/
-namespace {
+namespace
+{
 /* 轮电机数量（索引顺序 LF、LB、RB、RF，见 config.hpp） */
-constexpr int kWheelNum = 4;
+constexpr int kWheelNum = config::kWheelNum;
+/* DBUS 单帧长度（18 字节，见 inc/DT7.hpp） */
+constexpr uint16_t kRcRxLen = hello_world::remote_control::kRcRxDataLen;
+
+/* DBUS 接收缓冲（DMA 循环写入；回调里仅在 Size==18 时解码，避免半帧出错） */
+uint8_t g_rc_rx_buf[kRcRxLen];
 }  // namespace
+
+/* DBUS / 双板帧调试计数（Ozone Live Watch 可直接观察） */
+volatile uint32_t g_dbg_dbus_rx_ok = 0;   ///< 成功解包的 DBUS 帧数
+volatile uint32_t g_dbg_dbus_rx_bad = 0;  ///< Size 异常（半帧/错帧）次数
+volatile uint32_t g_dbg_c2g_tx_cnt = 0;   ///< C2G 双板帧发送次数
 
 /* Exported function definitions ---------------------------------------------*/
 void CommTaskInit(void) {
-  /* 本 WP 只做 CAN 通道初始化；UART DBUS / IWDG 属 WP-09 / WP-15，见文末 TODO。 */
-
-  /* 1. 先触发 Instance 层实例化 4 个轮电机（保证首次构造发生在开接收中断之前） */
+  /* 1. 先触发 Instance 层实例化：4 个轮电机 + 遥控解码器（保证首次构造发生在
+   *    开接收中断之前，中断里只做纯读写）。 */
   for (int i = 0; i < kWheelNum; ++i) {
     (void)GetMotorWheel(i);
   }
+  (void)GetRemoteControl();
+  (void)GetGimbalChassisComm();
 
-  /* 2. 接收滤波器（全收：CAN1→FIFO0，CAN2→FIFO1，契约 §4.2） */
+  /* 2. CAN 接收滤波器（全收：CAN1→FIFO0，CAN2→FIFO1，契约 §4.2） */
   CanFilter_Init(&hcan1);
   CanFilter_Init(&hcan2);
 
@@ -62,8 +88,7 @@ void CommTaskInit(void) {
     Error_Handler();
   }
 
-  /* CAN2 预留给双板通讯帧（契约 §4.2），此处只做底层启动；接收分发由 WP-10 在
-   * HW_can.cpp 的 FIFO1 回调中补齐。 */
+  /* CAN2 承载双板通讯帧（契约 §4.2）：G2C 0x211 由 HW_can.cpp 的 FIFO1 回调解码。 */
   if (HAL_CAN_Start(&hcan2) != HAL_OK) {
     Error_Handler();
   }
@@ -74,15 +99,21 @@ void CommTaskInit(void) {
     Error_Handler();
   }
 
-  /* TODO【WP-09】: 启动遥控器串口空闲 + DMA 接收（18 字节 DBUS，见 inc/DT7.hpp 注释）。
-   * IWDG 已在 main.c 的 MX_IWDG_Init() 启动（契约 §8.2）：MainTaskInit 末尾喂一次，
-   * 之后每 1 ms 在 CommTask() 末尾刷新；停喂复位演示属 WP-20。 */
+  /* 4. 启动遥控器 DBUS 接收：USART3 空闲 + DMA（CIRCULAR），收满 18 字节由
+   *    HAL_UARTEx_RxEventCallback 解包。启动失败直接进 Error_Handler（无遥控时
+   *    状态机永远无法进 Working，导致整车不可用，属致命初始化错误）。 */
+  if (HAL_UARTEx_ReceiveToIdle_DMA(&huart3, g_rc_rx_buf, kRcRxLen) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /* IWDG 已在 main.c 的 MX_IWDG_Init() 启动（契约 §8.2）：MainTaskInit 末尾喂一次，
+   * 之后每 1 ms 在 CommTask() 末尾刷新。 */
 }
 
 void CommTask(void) {
-  /* M3508 控制帧 0x200：电调 ID 1~4 共用同一帧，每个电机 encode() 只写自己的 2 字节，
-   * 因此必须让 4 个电机依次 encode 到同一个 8 字节缓冲区，最后只发一帧（契约 §8.1）。
-   * 每周期都发（输入为 0 也发），保证电调持续收到最新指令。 */
+  /* 1. M3508 控制帧 0x200：电调 ID 1~4 共用同一帧，每个电机 encode() 只写自己的
+   *    2 字节，因此必须让 4 个电机依次 encode 到同一个 8 字节缓冲区，最后只发一帧
+   *    （契约 §8.1）。每周期都发（输入为 0 也发），保证电调持续收到最新指令。 */
   uint8_t tx_data[8] = {0};
   for (int i = 0; i < kWheelNum; ++i) {
     hello_world::motor::Motor *motor = GetMotorWheel(i);
@@ -93,20 +124,50 @@ void CommTask(void) {
   }
   CAN_Send_Msg(&hcan1, tx_data, config::kCanIdMotorTx, 8);
 
+  /* 2. 双板通讯帧 C2G（0x210）：语义字段（状态/急停/模式/IMU yaw/云台目标角）由
+   *    Robot::update() 每 1 ms 刷新，这里只 encode + 经 CAN2 发出。每周期必发，
+   *    云台板用 isOffline() 判本板在线（契约 §3.2/§7.5）。 */
+  robot::GimbalChassisComm *comm = GetGimbalChassisComm();
+  if (comm != nullptr) {
+    uint8_t comm_tx_data[8] = {0};
+    comm->encode(comm_tx_data);
+    CAN_Send_Msg(&hcan2, comm_tx_data, config::kCanIdC2G, 8);
+    g_dbg_c2g_tx_cnt += 1;
+  }
+
 #if DEBUG_NO_IWDG == 0
-  /* 契约 §8.2：在 1 ms 任务链末尾刷新 IWDG。本函数运行在 TIM6 中断里，
-   * 若中断卡死/任务链停摆则会停止喂狗 → 底盘板 ~300 ms 后复位。 */
+  /* 3. 契约 §8.2：在 1 ms 任务链末尾刷新 IWDG。本函数运行在 TIM6 中断里，
+   *    若中断卡死/任务链停摆则会停止喂狗 → 底盘板 ~300 ms 后复位。 */
   (void)HAL_IWDG_Refresh(&hiwdg);
 #endif
-
-  /* TODO【WP-10】: 双板通讯帧（底盘 0x210）encode 后经 CAN2 发出。 */
 }
 
 /* Private function definitions ----------------------------------------------*/
-/* TODO【WP-09】:
- * 实现 UART 空闲中断回调 HAL_UARTEx_RxEventCallback：
- *   - 收到满 18 字节后调用 DT7.decode() 解包遥控器数据，并重新启动下一轮接收；
- *   - 该回调同样是 C 链接（extern "C"）。
- * 注意：CAN 的接收分发在 src/HW_can.cpp 的两个回调里（电机 decode / 双板协议解码），
- *      不要在这里重复写 CAN 接收逻辑。
+
+/**
+ * @brief   UART 接收事件回调（DBUS 遥控器解包）
+ * @param   huart: UART 句柄
+ * @param   Size:  本次事件对应的接收字节数
+ * @retval  None
+ * @note    空闲 + DMA 接收模式下，收满 kRcRxDataLen 字节触发一次回调；CIRCULAR
+ *          DMA 会在回调返回后自动从缓冲头继续接收，因此无需重启。
+ *          半帧（Size 不是 18）直接丢弃并计数；首帧到达前 Robot 判遥控离线。
  */
+extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart,
+                                           uint16_t Size) {
+  if (huart != &huart3) {
+    return;
+  }
+  if (Size != kRcRxLen) {
+    g_dbg_dbus_rx_bad += 1;  /* 半帧/异常帧：丢弃，等下一帧对齐 */
+    return;
+  }
+  hello_world::remote_control::DT7 *remote = GetRemoteControl();
+  if (remote == nullptr) {
+    return;
+  }
+  remote->decode(g_rc_rx_buf);
+  /* 刷新遥控在线时间戳（>100 ms 未刷新 → Robot 判遥控离线并回 Dead） */
+  hello_world::remote_control::NotifyRemoteRx();
+  g_dbg_dbus_rx_ok += 1;
+}

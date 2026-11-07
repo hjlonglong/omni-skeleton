@@ -10,10 +10,15 @@
  *                                                4×M3508 decode；修正 CAN2SB 未初始化
  *  V1.2.0      2026-10-28      Lead            1. CAN 故障可观测性：发送失败清邮箱并计数，
  *                                                错误回调快照 ErrorCode/ESR/TSR（Ozone 可看）
+ *  V1.3.0      2026-11-07      Agent B         1. WP-10：FIFO1 按 StdId 路由 G2C 双板
+ *                                                帧（0x211）到 GimbalChassisComm::decode
  *******************************************************************************
  * @attention :
- *  HAL_CAN_RxFifo0MsgPendingCallback（CAN1）按 StdId 与各电机 GetRxId 匹配后调用
- *  decode；HAL_CAN_RxFifo1MsgPendingCallback（CAN2）留给 WP-10 双板协议解码。
+ *  - HAL_CAN_RxFifo0MsgPendingCallback（CAN1）按 StdId 与各电机 GetRxId 匹配后调用
+ *    decode（0x201~0x204）；其它 ID 丢弃。
+ *  - HAL_CAN_RxFifo1MsgPendingCallback（CAN2）按 StdId 匹配 G2C（0x211）后调用
+ *    GimbalChassisComm::decode；未识别 ID 丢弃。
+ *  - 中断里只做 8 字节解码（memcpy + 整型/浮点运算），不得调用 HAL_Delay/打印。
  *******************************************************************************
  *  Copyright (c) 2024 Hello World Team, Zhejiang University.
  *  All Rights Reserved.
@@ -23,6 +28,9 @@
 #include "HW_can.hpp"
 
 #include "can.h"
+#include "config.hpp"
+#include "gimbal_chassis_comm.hpp"
+#include "ins_chassis_gimbal_comm.hpp"
 #include "ins_motor.hpp"
 #include "motor_M3508.hpp"
 
@@ -137,19 +145,26 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 }
 
 /**
- * @brief   CAN2 FIFO1 接收中断回调（双板通讯帧预留）
+ * @brief   CAN2 FIFO1 接收中断回调（双板通讯帧分发）
  * @param   hcan: CAN 句柄
  * @retval  None
- * @note    本 WP 只建立收发通道，解码由 WP-10 在此实现
+ * @note    按 StdId 路由：G2C（0x211）→ GimbalChassisComm::decode，其中携带云台
+ *          yaw 关节角（δ 主来源）、pitch 关节角、云台 IMU yaw 与云台板状态。
+ *          其它 ID（含本板误回环的 C2G 0x210）直接丢弃。
  */
 void HAL_CAN_RxFifo1MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
   if (hcan == &hcan2) {
     if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO1, &rx_header2,
                              can2_rx_data) == HAL_OK) {
-      /* TODO【WP-10】: CAN2 承载双板通讯帧（底盘 0x210 / 云台 0x211，契约 §4.1），
-       * 届时在此调用 GimbalChassisComm 解码。本 WP 只建立 CAN 收发通道，
-       * 收到后直接丢弃。 */
+      /* 用 config::kCanIdG2C 匹配，不硬编码（契约 §3.2/§4.2） */
+      if (rx_header2.StdId == config::kCanIdG2C) {
+        robot::GimbalChassisComm *comm = GetGimbalChassisComm();
+        if (comm != nullptr) {
+          comm->decode(can2_rx_data);
+        }
+      }
+      /* 其它 ID 丢弃：本板只接收云台板的 G2C 帧。 */
     }
   }
   HAL_CAN_ActivateNotification(hcan, CAN_IT_RX_FIFO1_MSG_PENDING);

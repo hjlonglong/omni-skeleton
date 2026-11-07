@@ -1,12 +1,16 @@
 /**
  *******************************************************************************
  * @file      :ins_robot.cpp
- * @brief     :
+ * @brief     :顶层状态机 robot::Robot 与底盘模块 robot::Chassis 的实例化
  * @history   :
  *  Version     Date            Author          Note
- *  V0.9.0      yyyy-mm-dd      <author>        1. <note>
+ *  V1.0.0      2026-11-07      Agent B         1. WP-12/14/17：函数内 static 单例
  *******************************************************************************
  * @attention :
+ *  - 契约 §6.3：不做全局对象（全局构造函数可能早于 HAL/时钟初始化），统一用
+ *    函数内 static 局部对象，在第一次 GetRobot()/GetChassis() 时构造。
+ *  - 真正的初始化（绑定电机/PID/逆解器、复位状态）在 Robot::init() 里，由
+ *    MainTaskInit 在 TIM6 中断启动前调用。
  *******************************************************************************
  *  Copyright (c) 2024 Hello World Team, Zhejiang University.
  *  All Rights Reserved.
@@ -14,34 +18,21 @@
  */
 /* Includes ------------------------------------------------------------------*/
 #include "ins_robot.hpp"
-/* Private macro -------------------------------------------------------------*/
-/* Private constants ---------------------------------------------------------*/
-/* Private types -------------------------------------------------------------*/
-/* Private variables ---------------------------------------------------------*/
-/* External variables --------------------------------------------------------*/
-/* Private function prototypes -----------------------------------------------*/
+
+#include "chassis.hpp"
+#include "robot.hpp"
+
 /* Exported function definitions ---------------------------------------------*/
-robot::Robot *GetRobot() {
-  /* TODO【新人任务】:
-   * 返回本板顶层状态机 robot::Robot 单例。
-   *
-   * 你要做：
-   *   1. 在本文件静态定义一个 robot::Robot 对象（静态存储期，程序启动即构造）。
-   *   2. 返回它的地址。
-   *
-   * 约束 / 提示：
-   *   - robot::Robot 类的定义由你在 RobotModules/component/robot.hpp 补全（见该文件 TODO），
-   *     本文件只负责实例化并返回地址。
-   */
-  return nullptr;
+robot::Robot *GetRobot()
+{
+  static robot::Robot instance;
+  return &instance;
 }
 
-robot::Chassis *GetChassis() {
-  /* TODO【新人任务】:
-   * 返回 Chassis 模块 robot::Chassis 单例，做法同 GetRobot()。
-   * robot::Chassis 类定义由你在 RobotModules/component/chassis.hpp 补全。
-   */
-  return nullptr;
+robot::Chassis *GetChassis()
+{
+  static robot::Chassis instance;
+  return &instance;
 }
 
 /* Private function definitions ----------------------------------------------*/
