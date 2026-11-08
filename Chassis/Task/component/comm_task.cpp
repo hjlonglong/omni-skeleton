@@ -61,10 +61,20 @@ volatile uint32_t g_dbg_dbus_rx_bad = 0;  ///< Size 异常（半帧/错帧）次
 volatile uint32_t g_dbg_c2g_tx_cnt = 0;   ///< C2G 双板帧发送次数
 /* 固件标识（2026-11-08 DBUS 修复）：Ozone 里确认已烧录本次固件。
  * 注意：必须 used+retain，否则未引用的全局会被 --gc-sections 删掉，Ozone 会把它
- * 解析到地址 0（读到 0x20020000 = 初始栈顶），从而"看起来烧错了固件"。 */
-__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261108u;
-volatile uint8_t g_dbg_dbus_last_evt = 0;  ///< 最近一次 UART 事件类型 0=TC 1=HT 2=IDLE
-volatile uint16_t g_dbg_dbus_last_size = 0; ///< 最近一次 UART 事件长度（正常 TC=18，帧后 IDLE=0）
+ * 解析到地址 0（读到 0x20020000 = 初始栈顶），从而"看起来烧错了固件"。
+ * V1.2.2 起每次改接收逻辑都换 tag，用来区分板内固件与 ELF 是否一致。 */
+__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261109u;
+volatile uint8_t g_dbg_dbus_last_evt = 0;  ///< 最近一次 UART 事件类型 0=HT 1=TC 2=IDLE
+volatile uint16_t g_dbg_dbus_last_size = 0; ///< 最近一次 UART 事件长度（正常 TC=18）
+/* 接收事件统计：判断帧对齐是否收敛；稳态下 TC 约 +70/秒（帧周期 ~14 ms），
+ * 上电最初 1~2 帧可能出现 0<size<18 的 IDLE（用于对齐），之后不应再增长。 */
+volatile uint32_t g_dbg_dbus_ht_cnt = 0;   ///< 半传输事件次数（被忽略，不应影响解码）
+volatile uint32_t g_dbg_dbus_tc_cnt = 0;   ///< 传输完成事件次数
+volatile uint32_t g_dbg_dbus_idle_cnt = 0; ///< 总线空闲事件次数（对齐阶段用）
+/* 最近 8 次 UART 事件日志，每项 = (evt << 8) | size；用于回放启动阶段的事件序列。
+ * 读法：g_dbg_dbus_evt_log[g_dbg_dbus_evt_idx] 是最旧一项，沿数组顺序递增。 */
+volatile uint16_t g_dbg_dbus_evt_log[8] = {0};
+volatile uint8_t g_dbg_dbus_evt_idx = 0;   ///< 下一个写入位置（环形）
 /* 便于 Ozone 单变量观察的标量摘录（数组在 Ozone 里展开不方便时用） */
 volatile uint8_t g_dbg_dbus_raw5 = 0;    ///< g_dbg_dbus_raw[5]（拨杆位所在字节）
 volatile uint8_t g_dbg_dbus_raw16 = 0;   ///< g_dbg_dbus_raw[16]（拨轮低字节）
@@ -91,6 +101,10 @@ volatile float g_dbg_rc_wheel = 0.0f;   ///< 拨轮 [-1,1]
  *    掩码非零，就能确认该控件的数据到底落在帧的哪个字节/哪些位上。 */
 volatile uint8_t g_dbg_dbus_raw[kRcRxLen] = {0};
 volatile uint8_t g_dbg_dbus_chg[kRcRxLen] = {0};
+/* 对齐/回中校验：4 个通道值（ch0..ch3）相对 1024 的绝对偏差之和。
+ * 所有摇杆回中、拨杆中位时应接近 0（几十以内）；若明显偏大，说明帧错位、
+ * 通道映射不符或遥控器未校准——这是判断"帧是否真的对齐"最快的单值指标。 */
+volatile uint16_t g_dbg_dbus_center_err = 0;
 
 /* Exported function definitions ---------------------------------------------*/
 void CommTaskInit(void) {
@@ -106,7 +120,7 @@ void CommTaskInit(void) {
    *  - g_dbg_fw_tag 写回一次，保证它被引用而不会被 --gc-sections 删除；
    *  - g_dbg_dbus_raw 预填 0xEE：若 Ozone 里看到 0xEE 说明接收回调没有写这块内存
    *    （符号地址不匹配/回调没跑），若看到真实字节说明链路正常。 */
-  g_dbg_fw_tag = 0x20261108u;
+  g_dbg_fw_tag = 0x20261109u;
   for (uint16_t i = 0; i < kRcRxLen; ++i) {
     g_dbg_dbus_raw[i] = 0xEEu;
   }
@@ -215,6 +229,18 @@ extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart,
   g_dbg_dbus_last_evt = static_cast<uint8_t>(huart->RxEventType);
   g_dbg_dbus_last_size = Size;
 
+  /* 事件统计 + 最近 8 次事件日志（观察启动阶段事件序列，判断帧对齐是否收敛） */
+  if (huart->RxEventType == HAL_UART_RXEVENT_HT) {
+    g_dbg_dbus_ht_cnt += 1u;
+  } else if (huart->RxEventType == HAL_UART_RXEVENT_TC) {
+    g_dbg_dbus_tc_cnt += 1u;
+  } else {
+    g_dbg_dbus_idle_cnt += 1u;
+  }
+  g_dbg_dbus_evt_log[g_dbg_dbus_evt_idx] = static_cast<uint16_t>(
+      (static_cast<uint16_t>(huart->RxEventType) << 8) | (Size & 0xFFu));
+  g_dbg_dbus_evt_idx = static_cast<uint8_t>((g_dbg_dbus_evt_idx + 1u) & 0x07u);
+
   /* 半传输不是帧边界：忽略，且不重启接收（重启会破坏帧对齐）。 */
   if (huart->RxEventType == HAL_UART_RXEVENT_HT) {
     return;
@@ -240,6 +266,31 @@ extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart,
       g_dbg_dbus_raw17 = g_rc_rx_buf[17];
       g_dbg_dbus_sum = sum;
       g_dbg_dbus_chg_sum = chg_sum;
+
+      /* 4 个 11 bit 通道相对中位 1024 的偏差和：所有摇杆回中时应接近 0，
+       * 这是判断"帧是否对齐 / 通道映射是否标准"最快的单值指标。 */
+      {
+        const uint16_t ch0 = static_cast<uint16_t>(
+            (g_rc_rx_buf[0] | (g_rc_rx_buf[1] << 8)) & 0x07FFu);
+        const uint16_t ch1 = static_cast<uint16_t>(
+            ((g_rc_rx_buf[1] >> 3) | (g_rc_rx_buf[2] << 5)) & 0x07FFu);
+        const uint16_t ch2 = static_cast<uint16_t>(
+            ((g_rc_rx_buf[2] >> 6) | (g_rc_rx_buf[3] << 2) |
+             (g_rc_rx_buf[4] << 10)) &
+            0x07FFu);
+        const uint16_t ch3 = static_cast<uint16_t>(
+            ((g_rc_rx_buf[4] >> 1) | (g_rc_rx_buf[5] << 7)) & 0x07FFu);
+        const uint16_t dev0 =
+            static_cast<uint16_t>(ch0 > 1024u ? ch0 - 1024u : 1024u - ch0);
+        const uint16_t dev1 =
+            static_cast<uint16_t>(ch1 > 1024u ? ch1 - 1024u : 1024u - ch1);
+        const uint16_t dev2 =
+            static_cast<uint16_t>(ch2 > 1024u ? ch2 - 1024u : 1024u - ch2);
+        const uint16_t dev3 =
+            static_cast<uint16_t>(ch3 > 1024u ? ch3 - 1024u : 1024u - ch3);
+        g_dbg_dbus_center_err =
+            static_cast<uint16_t>(dev0 + dev1 + dev2 + dev3);
+      }
 
       remote->decode(g_rc_rx_buf);
       /* 镜像解码结果（Ozone Live Watch，拨杆/摇杆可读性自检） */
