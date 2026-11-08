@@ -38,7 +38,10 @@ void DT7::decode(const uint8_t rx_data[kRcRxDataLen])
   rc_lh_ = (tmp - kRcOffset) * kRcRatio;
   tmp = ((rx_data[4] >> 1) | (rx_data[5] << 7)) & 0x07FF;
   rc_lv_ = (tmp - kRcOffset) * kRcRatio;
-  tmp = rx_data[16] | (rx_data[17] << 8);
+  /* 拨轮：11 位通道，必须与 0x07FF 掩码；否则 raw[17] 的高 5 位垃圾会把
+   * 结果放大（实测 raw[17]=26 时 wheel 会算成 +8.6，现象是"拨轮数值在 -1~10
+   * 间乱跳"）。2026-11-08 修正。 */
+  tmp = (rx_data[16] | (rx_data[17] << 8)) & 0x07FF;
   rc_wheel_ = (tmp - kRcOffset) * kRcRatio;
 
   /* 拨杆位域（DBUS 第 5 字节高半字节）：bit4-5 = 左拨杆 s1，bit6-7 = 右拨杆 s2。
