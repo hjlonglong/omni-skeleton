@@ -1,7 +1,7 @@
 # omni-skeleton — RoboMaster 全向轮步兵电控（双板）
 
 > 2026 赛季 RoboMaster 全向轮步兵电控工程，基于 Hello World 战队双板骨架二次开发：`Chassis/` 底盘板（RoboMaster C 型板）与 `Gimbal/` 云台板各一片 STM32F407IGH6，`RobotComponents/` 为两板共享代码。
-> 当前里程碑 `v1.1`（2026-11-07）：**双板完整整车控制链**——底盘 4×M3508 速度环 + 三态状态机 + DBUS 遥控 + O 型全向轮逆解；云台 DM-J4310 两轴位置/力矩控制 + C2G/G2C 双板帧；两板 1 ms 调度与 IWDG 喂狗齐备。
+> 当前里程碑 **v1.1.x 硬件联调**（2026-11-08）：双板完整控制链已实现并完成 L2 硬件链路验证——DBUS 遥控、两板 IMU、CAN 分发（4×M3508 反馈/0x200）、云台 DM yaw+pitch 反馈、**双板帧走 CAN1（100 Hz）**、云台 yaw/pitch **遥控控制正常**；待测：世界系增稳（T2）、死区/限速（T4）、急停恢复（T5）、断联保护（T6）、验收数据（T7）与底盘整车运动，L3/L4 整机联调。
 
 ## 功能与实现文件
 
@@ -19,18 +19,25 @@
 | 底盘三模式 | ✅ | `Chassis/RobotModules/component/robot.cpp` | 分离（自转取拨轮）/ 跟随（云台 δ 跟随 PID）/ 小陀螺（平移方向仍随云台）；左拨杆切换，30 ms 去抖 |
 | 云台两轴控制 | ✅ | `Gimbal/RobotModules/component/gimbal.cpp`、`Gimbal/RobotModules/component/robot.cpp` | yaw 世界目标 − 底盘 IMU yaw → 关节目标；pitch 软限位 [-0.35, +0.55] rad；位置环 → 速度环 → DM MIT 力矩 |
 | DM-J4310 收发 | ✅ | `Gimbal/inc/motor_DaMiao.hpp`、`Gimbal/src/motor_DaMiao.cpp`、`Gimbal/src/HW_can.cpp` | yaw=CAN1、pitch=CAN2 反馈解码；MIT 纯力矩 `setMitInput(0,0,0,0,τ)`；已修 CAN2SB 滤波组缺陷 |
-| 双板通讯帧 | ✅ | `RobotComponents/component/gimbal_chassis_comm.*`、`Task/component/comm_task.cpp`、`src/HW_can.cpp` | C2G 0x210 / G2C 0x211，8 字节大端，两板每 1 ms 收发；v1.1：C2G b2-3=云台期望世界 yaw、b4-5=期望 pitch |
+| 双板通讯帧 | ✅ | `RobotComponents/component/gimbal_chassis_comm.*`、两板 `Task/component/comm_task.cpp`、`src/HW_can.cpp` | C2G 0x210 / G2C 0x211，8 字节大端；**走两板物理相连的 CAN1，周期 10 ms（100 Hz，`kInterboardPeriodMs`）**；v1.1：C2G b2-3=云台期望世界 yaw、b4-5=期望 pitch；`isOffline()` 100 ms |
 | 看门狗（IWDG） | ✅ | `Core/Src/iwdg.c`、两板 `Task/component/comm_task.cpp` | 初始化末尾喂一次；`CommTask` 每 1 ms 喂狗（1 ms 链末）；`DEBUG_NO_IWDG=1` 仅台架+调试器使用 |
 | 单轮台架调试任务 | ✅ | `Task/component/control_task.hpp`、`Task/component/control_task.cpp` | `TEST_MODE=1` 时单轮三角波扫掠（±40 rad/s、2 A、15 s 归零），`g_dbg_*` 可 Ozone 观测；`0` 时完全不覆盖 Robot 输出 |
 
-## 完成进度（P2，2026-11-07）
+## 完成进度（P2 硬件联调，2026-11-08）
 
-- ✅ 底盘板完整控制链：DBUS → 三态状态机 → 三模式 → δ 变换 → O 型逆解 → 4 轮速度环 → 0x200；C2G 每周期发送；IWDG 1 ms 链末喂狗。
-- ✅ 云台板完整控制链：C2G 目标消费 → 三态状态机 → yaw 世界坐标换算 + pitch 软限位 → 位置环/速度环 → DM MIT 力矩；G2C 回发（CAN1，100 Hz）；CAN2SB 缺陷修复。双板帧走两板相连的 CAN1（`kInterboardPeriodMs=10`，避免与 4×M3508 共用总线超载）。
-- ✅ 双板协议：0x210/0x211 每 1 ms 收发、`isOffline()` 100 ms 阈值、v1.1 云台目标角语义；两板 `RobotComponents` 头文件同源。
+- ✅ **L2 硬件链路已验证（2026-11-08，实测）**：
+  - DBUS 遥控链路正常（摇杆/拨杆/拨轮全量解码正确，帧对齐与通道映射已修正）；
+  - 底盘/云台 IMU 初始化、零漂标定与姿态输出正常；
+  - CAN 分发与电机配置：4×M3508 反馈解码 + 0x200 电流下发正常；云台 DM yaw/pitch 使能与反馈正常（yaw=CAN1 id2、pitch=CAN2 id1）；
+  - **云台 yaw/pitch 遥控控制正常**（右摇杆 → C2G 目标 → 位置环/速度环 → DM MIT 力矩环）；
+  - 双板帧走两板 CAN1、100 Hz 收发稳定（CAN1 负载约 65%）。
+- ✅ 底盘板完整控制链（软件）：DBUS → 三态 → 三模式 → δ 变换 → O 型逆解 → 4 轮速度环 → 0x200。
+- ✅ 云台板完整控制链（软件）：C2G 目标消费 → 三态 → yaw 世界坐标换算 + pitch 软限位 → 位置环/速度环 → DM MIT 力矩；G2C 回发（CAN1，100 Hz）。
+- ✅ 双板协议：0x210/0x211、`isOffline()` 100 ms 阈值、v1.1 云台目标角语义；两板 `RobotComponents` 同源。
 - ✅ 安全：急停/遥控离线/云台离线/IMU 未标定/电机反馈超时 → Dead + 全轴零输出；交付态 `TEST_MODE=0`、`DEBUG_NO_IWDG=0`。
-- 🟡 无硬件自测：底盘主机 harness **76/76 PASS**（DT7 解码、三态机、三模式、δ、逆解、帧往返、集成序列）；云台 15 条编译期 `static_assert`；两板 L0 全量构建 0 error / 0 warning。
-- ⛔ 待硬件/整机（L3/L4）：轮安装角与方向标定（`kXxxMountAngleRad`/`kWheelSign`/`kWheelDir`）、δ 符号（`kDeltaSign`）实车确认、DM 方向/零位/PMAX 核对、PID 实车整定、双板联调与 8 字/直线/跟随/小陀螺测试。
+- 🟡 **待硬件验证（下一步）**：T2 世界系增稳（转底盘云台保持指向）、T4 死区/限速、T5 急停与恢复、T6 断联保护、T7 验收数据；底盘整车运动（直线/8 字/跟随/小陀螺）；L3/L4 整机联调。
+- 🟡 无硬件自测：底盘主机 harness 76/76 PASS（DT7 解码、三态机、三模式、δ、逆解、帧往返、集成序列）；云台 15 条编译期 `static_assert`；两板 L0 0 error / 0 warning。
+- ⛔ 待标定（`TODO(硬件)`）：轮安装角/方向/几何（`kXxxMountAngleRad`/`kWheelSign`/`kWheelDir`）、`kDeltaSign` 实车确认、DM 方向/零位/PMAX 核对、PID 实车整定。
 
 ## 调试开关与已知限制
 
@@ -62,9 +69,9 @@ omni-skeleton/
 TIM6 1 ms → HAL_TIM_PeriodElapsedCallback（各板 Task/component/main_task.cpp）
   底盘：MainTask()   IMU 更新 +（TEST_MODE==0 时）Robot::update（状态机/模式/逆解/轮速环）
         ControlTask() TEST_MODE==1 单轮扫掠；==0 不覆盖输出
-        CommTask()   0x200 电流帧 + 0x210 C2G 帧 + IWDG 喂狗
+        CommTask()   0x200 电流帧（CAN1）+ C2G 0x210 双板帧（CAN1，每 10 ms）+ IWDG 喂狗
   云台：MainTask()   IMU 更新 + Robot::update（状态机/云台控制）
-        CommTask()   0x211 G2C 帧 + IWDG 喂狗
+        CommTask()   yaw MIT 0x02（CAN1）+ pitch MIT 0x01（CAN2）+ G2C 0x211 双板帧（CAN1，每 10 ms）+ IWDG 喂狗
 ```
 
 ## 构建
@@ -80,11 +87,19 @@ cmake --build --preset Debug -j 8
 > 也可不用 preset，直接 `cmake -S . -B build -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$PWD/cmake/gcc-arm-none-eabi.cmake" -DCMAKE_BUILD_TYPE=Debug`；`-DCMAKE_TOOLCHAIN_FILE` 必须为绝对路径。
 > ELF 固定输出到 `<板>/build/omni_<board>.elf`，可用 Ozone（SWD 4 MHz）加载。
 
-基线（2026-11-07，`TEST_MODE=0` 交付态，Debug 全量构建，Lead 独立 `build\leadfull` 复验）：
+基线（2026-11-08，CAN 拓扑修正版 / 云台遥控已验证版，`TEST_MODE=0` 交付态，Debug 全量构建）：
 
-| 板 | 编译单元 | 结果 | text | data | bss |
-| --- | --- | --- | --- | --- | --- |
-| Chassis | 677 | 0 error / 0 warning | 62,688 B | 280 B | 8,168 B |
-| Gimbal | 678 | 0 error / 0 warning | 65,168 B | 112 B | 8,072 B |
+| 板 | 编译单元 | 结果 | text | data | bss | ELF |
+| --- | --- | --- | --- | --- | --- | --- |
+| Chassis | 677 | 0 error / 0 warning | 64,744 B | 288 B | 8,440 B | 2,408,332 B |
+| Gimbal | 678 | 0 error / 0 warning | 66,036 B | 120 B | 8,200 B | 2,363,444 B |
 
-无硬件自测：底盘主机 harness `D:\rm\task8_selftest\test_logic.exe`（76/76 PASS）；云台 `gimbal_math.hpp` 15 条 `static_assert` 随构建验证。Ozone 可观测 `robot::robot_debug`、`robot::gimbal_debug`、`g_dbg_*`、`g_can_*` 等调试变量。DBUS 链路自检变量（2026-11-08 起）：`g_dbg_dbus_rx_ok`（约 70 帧/s）、`g_dbg_dbus_rx_bad`、`g_dbg_rc_online`、`g_dbg_rc_l_switch`/`g_dbg_rc_r_switch`（1=上/2=下/3=中）、`g_dbg_rc_lv`/`lh`/`rv`/`rh`/`wheel`（[-1,1]）。
+固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x20261121`（539365665）、云台 `g_dbg_fw_tag = 0x20261122`（539365666）。
+
+无硬件自测：底盘主机 harness `D:\rm\task8_selftest\test_logic.exe`（76/76 PASS）；云台 `gimbal_math.hpp` 15 条 `static_assert` 随构建验证。
+
+Ozone 可观测调试变量：
+- 底盘全局：`g_dbg_life_state/mode/source/estop/remote_online/imu_ready/peer_online`、`g_dbg_yaw_target`/`g_dbg_pitch_target`、`g_dbg_rc_lv/lh/rv/rh/wheel/l_switch/r_switch`、`g_dbg_wheel_vel/curr/input/angle/temp[4]`、`g_dbg_can1_tx_cnt`/`g_dbg_c2g_tx_cnt`、`g_can_wheel_rx_cnt[4]`、`g_can_g2c_rx_cnt`、`g_dbg_dbus_*`；
+- 云台：`robot::robot_debug::{life_state,safety_ok,c2g_online,c2g_remote_online,c2g_estop,c2g_yaw_target,c2g_pitch_target,c2g_chassis_imu_yaw}`、`g_dbg_dm_vel/curr/torq/angle/input/enabled/status_code[2]`、`g_dbg_can1_tx_cnt`/`g_dbg_can2_tx_cnt`/`g_dbg_g2c_tx_cnt`、`g_can_yaw_fdb_cnt`/`g_can_pitch_fdb_cnt`/`g_can_c2g_rx_cnt`。
+
+> 提示：云台目标为**世界系 yaw**（v1.1 语义），转动底盘时云台会反向补偿保持指向（T2 待验证项，属预期设计）。
