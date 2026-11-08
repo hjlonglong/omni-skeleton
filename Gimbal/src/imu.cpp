@@ -34,6 +34,28 @@ namespace imu
 /* Private constants ---------------------------------------------------------*/
 /* Private types -------------------------------------------------------------*/
 /* Private variables ---------------------------------------------------------*/
+/* ===== Ozone Live Watch 调试镜像（2026-11-08 新增） =====
+ * 原因：`GetImu()->euler_[0]` 这类表达式含"函数调用 + 函数内 static 局部变量"，
+ * Ozone 的 Live Watch/Graph 不能执行目标代码，会报
+ * "the expression contains at least one operand with an unknown data location"。
+ * 解决：每 1 ms 把 Imu 关键状态镜像到这些普通全局变量（只写不参与控制）。
+ * 用法：Ozone Live Watch 直接加 `g_dbg_imu_*`，即可连续采样/画曲线。 */
+volatile uint8_t g_dbg_imu_init_ok = 0U;    ///< 1 = BMI088 初始化成功
+volatile uint8_t g_dbg_imu_calib_ok = 0U;   ///< 1 = 零漂标定完成
+volatile uint8_t g_dbg_imu_ready_flag = 0U; ///< 1 = 姿态就绪（可进 Working）
+volatile uint32_t g_dbg_imu_drift_n = 0U;   ///< 标定窗口当前样本数（0~750 循环）
+volatile uint32_t g_dbg_imu_frames = 0U;    ///< 标定完成后累计帧数
+volatile float g_dbg_imu_bias_x = 0.0f;     ///< 零漂估计 rad/s
+volatile float g_dbg_imu_bias_y = 0.0f;
+volatile float g_dbg_imu_bias_z = 0.0f;
+volatile float g_dbg_imu_roll = 0.0f;       ///< rad
+volatile float g_dbg_imu_pitch = 0.0f;      ///< rad
+volatile float g_dbg_imu_yaw = 0.0f;        ///< rad
+volatile float g_dbg_imu_gyro_z = 0.0f;     ///< rad/s（扣零漂后）
+volatile float g_dbg_imu_quat_w = 1.0f;     ///< 四元数 w/x/y/z（模应≈1）
+volatile float g_dbg_imu_quat_x = 0.0f;
+volatile float g_dbg_imu_quat_y = 0.0f;
+volatile float g_dbg_imu_quat_z = 0.0f;
 /* External variables --------------------------------------------------------*/
 /* Private function prototypes -----------------------------------------------*/
 /* Exported function definitions ---------------------------------------------*/
@@ -75,6 +97,9 @@ void Imu::init()
 
 void Imu::update()
 {
+  /* 调试镜像：初始化状态每帧刷新（未初始化时也刷新，便于定位硬件问题）。 */
+  g_dbg_imu_init_ok = initialized_ ? 1U : 0U;
+
   /* 初始化失败时不做任何事：isReady() 保持 false，上层不会进 Working。 */
   if (!initialized_) {
     return;
@@ -96,6 +121,14 @@ void Imu::update()
         drift_.reset();                        // 有运动 → 丢弃窗口重采
       }
     }
+    /* 调试镜像：标定期间的值 */
+    g_dbg_imu_calib_ok = 0U;
+    g_dbg_imu_ready_flag = 0U;
+    g_dbg_imu_drift_n = drift_.count();
+    g_dbg_imu_frames = frames_after_calib_;
+    g_dbg_imu_bias_x = bias_[0];
+    g_dbg_imu_bias_y = bias_[1];
+    g_dbg_imu_bias_z = bias_[2];
     return;  // 标定期间不跑 Mahony，也不置 ready_
   }
 
@@ -116,6 +149,25 @@ void Imu::update()
   if (!ready_ && ++frames_after_calib_ >= kReadyExtraFrames) {
     ready_ = true;
   }
+
+  /* 调试镜像：标定完成后的完整状态（Ozone Live Watch 直接看这些全局变量）。 */
+  float quat[4] = {1.0f, 0.0f, 0.0f, 0.0f};
+  mahony_.getQuat(quat);
+  g_dbg_imu_calib_ok = calibrated_ ? 1U : 0U;
+  g_dbg_imu_ready_flag = ready_ ? 1U : 0U;
+  g_dbg_imu_drift_n = drift_.count();
+  g_dbg_imu_frames = frames_after_calib_;
+  g_dbg_imu_bias_x = bias_[0];
+  g_dbg_imu_bias_y = bias_[1];
+  g_dbg_imu_bias_z = bias_[2];
+  g_dbg_imu_roll = euler_[0];
+  g_dbg_imu_pitch = euler_[1];
+  g_dbg_imu_yaw = euler_[2];
+  g_dbg_imu_gyro_z = gyro_z_;
+  g_dbg_imu_quat_w = quat[0];
+  g_dbg_imu_quat_x = quat[1];
+  g_dbg_imu_quat_y = quat[2];
+  g_dbg_imu_quat_z = quat[3];
 }
 
 /* Private function definitions ----------------------------------------------*/
