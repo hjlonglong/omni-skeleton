@@ -43,9 +43,11 @@ inline constexpr uint32_t kCanIdG2C = 0x211u;  ///< 云台 → 底盘
 /* ---- CAN 总线分配（契约 §4.2：CAN1=电机，CAN2=双板帧）---- */
 inline constexpr uint32_t kCanIdMotorTxBase = 0x200u;  ///< 达妙 MIT 控制帧基址（见 contract §4.1）
 
-/* ---- 云台电机（DM-J4310；yaw 为下，pitch 为上）---- */
-inline constexpr uint8_t kYawMotorId = 1u;    ///< TODO(硬件): 达妙 CAN ID 核对
-inline constexpr uint8_t kPitchMotorId = 2u;  ///< TODO(硬件): 达妙 CAN ID 核对
+/* ---- 云台电机（DM-J4310；yaw 为下，pitch 为上）----
+ * 2026-11-08 通讯拓扑核对：yaw 电机 ID=2、pitch 电机 ID=1（以实物接线为准，
+ * 勿再对调；反馈 ID = 本 ID + 0x10，即 yaw 0x12 / pitch 0x11）。 */
+inline constexpr uint8_t kYawMotorId = 2u;
+inline constexpr uint8_t kPitchMotorId = 1u;
 inline constexpr int8_t kYawMotorDir = 1;     ///< TODO(硬件): 正方向标定
 inline constexpr int8_t kPitchMotorDir = 1;   ///< TODO(硬件): 正方向标定
 inline constexpr float kYawAngleOffset = 0.0f;    ///< rad，机械零位对齐（TODO(硬件)）
