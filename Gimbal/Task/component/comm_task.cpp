@@ -44,7 +44,23 @@ constexpr uint32_t kCanErrIrqMask =
 /* 固件标识（2026-11-08 云台 IMU 检测版）：Ozone 里确认烧的是本次 ELF。
  * 必须 used+retain，否则未被引用的全局会被 --gc-sections 删除，Ozone 会把它
  * 解析到无效地址（读到 0x20020000 = 初始栈顶），看起来像"烧错固件"。 */
-__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261112u;
+__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261114u;
+
+/* DM 电机状态镜像（Ozone Live Watch；每 1 ms 刷新，只读不影响控制）----------
+ * 数组索引：0 = yaw，1 = pitch（与 GetMotorYaw()/GetMotorPitch() 顺序一致）。
+ *  - vel/curr/torq/angle：按电机反馈解码（rad/s、A、N·m、rad）；
+ *  - input ：本周期编码进 MIT 帧的目标量（Robot 下发，纯力矩模式为 N·m）；
+ *  - enabled：DM 反馈帧里的使能状态；rotor/mos temp：温度 ℃。 */
+volatile float g_dbg_dm_vel[2] = {0.0f};
+volatile float g_dbg_dm_curr[2] = {0.0f};
+volatile float g_dbg_dm_torq[2] = {0.0f};
+volatile float g_dbg_dm_angle[2] = {0.0f};
+volatile float g_dbg_dm_input[2] = {0.0f};
+volatile uint8_t g_dbg_dm_rotor_temp[2] = {0};
+volatile uint8_t g_dbg_dm_mos_temp[2] = {0};
+volatile uint8_t g_dbg_dm_enabled[2] = {0};
+volatile uint32_t g_dbg_can1_tx_cnt = 0;  ///< CAN1（DM 电机帧）发送次数
+volatile uint32_t g_dbg_can2_tx_cnt = 0;  ///< CAN2（G2C 双板帧）发送次数
 
 /* Exported function definitions ---------------------------------------------*/
 
@@ -78,7 +94,7 @@ void CommTaskInit(void)
   /* 4. IWDG 已在 main.c 的 MX_IWDG_Init() 中启动，阻塞初始化结束后由
    *    MainTaskInit 统一喂一次；本任务负责运行期周期喂狗。 */
   /* 5. 调试镜像：写入固件标识，便于 Ozone 确认已烧录本次云台 ELF。 */
-  g_dbg_fw_tag = 0x20261112u;
+  g_dbg_fw_tag = 0x20261114u;
 }
 
 void CommTask(void)
@@ -97,6 +113,7 @@ void CommTask(void)
       const auto *dm = static_cast<hello_world::motor::DaMiao *>(motor);
       CAN_Send_Msg(&hcan1, tx_data, dm->tx_id(),
                    static_cast<uint8_t>(kCanFrameLen));
+      g_dbg_can1_tx_cnt += 1u;
     }
   }
 
@@ -106,6 +123,24 @@ void CommTask(void)
     comm->encode(tx_data);
     CAN_Send_Msg(&hcan2, tx_data, comm->tx_id(),
                  static_cast<uint8_t>(kCanFrameLen));
+    g_dbg_can2_tx_cnt += 1u;
+  }
+
+  /* 3. 电机状态镜像（只读，供 Ozone 检查 CAN 反馈 / 使能 / 温度） */
+  for (int i = 0; i < kAxisNum; ++i) {
+    hello_world::motor::Motor *const motor = motors[i];
+    if (motor == nullptr) {
+      continue;
+    }
+    const auto *dm = static_cast<hello_world::motor::DaMiao *>(motor);
+    g_dbg_dm_vel[i] = motor->vel();
+    g_dbg_dm_curr[i] = motor->curr();
+    g_dbg_dm_torq[i] = motor->torq();
+    g_dbg_dm_angle[i] = motor->angle();
+    g_dbg_dm_input[i] = motor->getInput();
+    g_dbg_dm_rotor_temp[i] = dm->rotor_temp();
+    g_dbg_dm_mos_temp[i] = dm->mos_temp();
+    g_dbg_dm_enabled[i] = dm->is_enabled() ? 1u : 0u;
   }
 
   /* 3. 喂独立看门狗（1ms 周期，600ms 超时；调试期可置 DEBUG_NO_IWDG=1 关闭） */

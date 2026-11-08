@@ -41,6 +41,7 @@
 #include "ins_comm.hpp"
 #include "ins_motor.hpp"
 #include "iwdg.h"
+#include "motor_M3508.hpp"
 #include "usart.h"
 
 /* Private constants ---------------------------------------------------------*/
@@ -59,11 +60,25 @@ uint8_t g_rc_rx_buf[kRcRxLen];
 volatile uint32_t g_dbg_dbus_rx_ok = 0;   ///< 成功解包的 DBUS 帧数
 volatile uint32_t g_dbg_dbus_rx_bad = 0;  ///< Size 异常（半帧/错帧）次数
 volatile uint32_t g_dbg_c2g_tx_cnt = 0;   ///< C2G 双板帧发送次数
+
+/* 轮电机状态镜像（Ozone Live Watch；每 1 ms 刷新，只读不影响控制）----------
+ * 数组索引与 config::kWheelCanId 一致：0=LF 1=LB 2=RB 3=RF。
+ *  - vel    ：轮速 rad/s（M3508 反馈 RPM 已换算）；
+ *  - curr   ：实际电流 A；
+ *  - input  ：目标输入 A（Robot 每周期 setInput 的值，KCurr 模式即电流指令）；
+ *  - angle  ：累计角度 rad（机械角换算）；
+ *  - temp   ：电机温度 ℃（M3508 反馈帧附带）。 */
+volatile float g_dbg_wheel_vel[4] = {0.0f};
+volatile float g_dbg_wheel_curr[4] = {0.0f};
+volatile float g_dbg_wheel_input[4] = {0.0f};
+volatile float g_dbg_wheel_angle[4] = {0.0f};
+volatile uint8_t g_dbg_wheel_temp[4] = {0};
+volatile uint32_t g_dbg_can1_tx_cnt = 0;  ///< 0x200 控制帧发送次数
 /* 固件标识（2026-11-08 DBUS 修复）：Ozone 里确认已烧录本次固件。
  * 注意：必须 used+retain，否则未引用的全局会被 --gc-sections 删掉，Ozone 会把它
  * 解析到地址 0（读到 0x20020000 = 初始栈顶），从而"看起来烧错了固件"。
  * V1.2.2 起每次改接收逻辑都换 tag，用来区分板内固件与 ELF 是否一致。 */
-__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261111u;
+__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261113u;
 volatile uint8_t g_dbg_dbus_last_evt = 0;  ///< 最近一次 UART 事件类型 0=HT 1=TC 2=IDLE
 volatile uint16_t g_dbg_dbus_last_size = 0; ///< 最近一次 UART 事件长度（正常 TC=18）
 /* 接收事件统计：判断帧对齐是否收敛；稳态下 TC 约 +70/秒（帧周期 ~14 ms），
@@ -120,7 +135,7 @@ void CommTaskInit(void) {
    *  - g_dbg_fw_tag 写回一次，保证它被引用而不会被 --gc-sections 删除；
    *  - g_dbg_dbus_raw 预填 0xEE：若 Ozone 里看到 0xEE 说明接收回调没有写这块内存
    *    （符号地址不匹配/回调没跑），若看到真实字节说明链路正常。 */
-  g_dbg_fw_tag = 0x20261111u;
+  g_dbg_fw_tag = 0x20261113u;
   for (uint16_t i = 0; i < kRcRxLen; ++i) {
     g_dbg_dbus_raw[i] = 0xEEu;
   }
@@ -178,6 +193,7 @@ void CommTask(void) {
     (void)motor->encode(tx_data);
   }
   CAN_Send_Msg(&hcan1, tx_data, config::kCanIdMotorTx, 8);
+  g_dbg_can1_tx_cnt += 1;
 
   /* 2. 双板通讯帧 C2G（0x210）：语义字段（状态/急停/模式/IMU yaw/云台目标角）由
    *    Robot::update() 每 1 ms 刷新，这里只 encode + 经 CAN2 发出。每周期必发，
@@ -193,6 +209,20 @@ void CommTask(void) {
   /* 3. 遥控在线状态镜像（Ozone 直读；>100 ms 无帧即为 0） */
   g_dbg_rc_online =
       hello_world::remote_control::IsRemoteOnline() ? 1u : 0u;
+
+  /* 4. 轮电机状态镜像（只读，供 Ozone Live Watch 检查 CAN 反馈是否解码成功） */
+  for (int i = 0; i < kWheelNum; ++i) {
+    hello_world::motor::Motor *motor = GetMotorWheel(i);
+    if (motor == nullptr) {
+      continue;
+    }
+    g_dbg_wheel_vel[i] = motor->vel();
+    g_dbg_wheel_curr[i] = motor->curr();
+    g_dbg_wheel_input[i] = motor->getInput();
+    g_dbg_wheel_angle[i] = motor->angle();
+    g_dbg_wheel_temp[i] =
+        static_cast<hello_world::motor::M3508 *>(motor)->temp();
+  }
 
 #if DEBUG_NO_IWDG == 0
   /* 3. 契约 §8.2：在 1 ms 任务链末尾刷新 IWDG。本函数运行在 TIM6 中断里，

@@ -55,6 +55,10 @@ volatile uint32_t g_can_err_esr = 0;       ///< 最近一次错误时的 ESR 快
 volatile uint32_t g_can_err_tsr = 0;       ///< 最近一次错误时的 TSR 快照
 volatile uint32_t g_can_err_cnt = 0;       ///< CAN 错误回调累计次数
 volatile uint32_t g_can_tx_fail_cnt = 0;   ///< CAN_Send_Msg 发送失败累计次数
+/* 接收分发计数（Ozone Live Watch：判断电机反馈/双板帧是否真的到达并解码）---- */
+volatile uint32_t g_can_wheel_rx_cnt[4] = {0, 0, 0, 0};  ///< 各轮反馈解码次数
+volatile uint32_t g_can_wheel_unknown_cnt = 0;  ///< CAN1 上未匹配到轮电机的帧数
+volatile uint32_t g_can_g2c_rx_cnt = 0;         ///< 收到的 G2C（0x211）双板帧数
 
 /* Exported function definitions ---------------------------------------------*/
 
@@ -135,7 +139,12 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
             rx_header1.StdId ==
                 hello_world::motor::M3508::GetRxId(motor->id())) {
           (void)motor->decode(can1_rx_data);
+          g_can_wheel_rx_cnt[i] += 1u;
           break;
+        }
+        if (i == kWheelNum - 1) {
+          /* 0x201~0x204 之外的 CAN1 帧（如电调错误帧/其它设备） */
+          g_can_wheel_unknown_cnt += 1u;
         }
       }
       /* 其它 ID（如双板通讯帧 0x210/0x211，属 WP-10）当前直接丢弃。 */
@@ -162,6 +171,7 @@ void HAL_CAN_RxFifo1MsgPendingCallback(CAN_HandleTypeDef *hcan)
         robot::GimbalChassisComm *comm = GetGimbalChassisComm();
         if (comm != nullptr) {
           comm->decode(can2_rx_data);
+          g_can_g2c_rx_cnt += 1u;
         }
       }
       /* 其它 ID 丢弃：本板只接收云台板的 G2C 帧。 */
