@@ -44,7 +44,7 @@ constexpr uint32_t kCanErrIrqMask =
 /* 固件标识（2026-11-08 云台 IMU 检测版）：Ozone 里确认烧的是本次 ELF。
  * 必须 used+retain，否则未被引用的全局会被 --gc-sections 删除，Ozone 会把它
  * 解析到无效地址（读到 0x20020000 = 初始栈顶），看起来像"烧错固件"。 */
-__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261114u;
+__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261115u;
 
 /* DM 电机状态镜像（Ozone Live Watch；每 1 ms 刷新，只读不影响控制）----------
  * 数组索引：0 = yaw，1 = pitch（与 GetMotorYaw()/GetMotorPitch() 顺序一致）。
@@ -59,6 +59,9 @@ volatile float g_dbg_dm_input[2] = {0.0f};
 volatile uint8_t g_dbg_dm_rotor_temp[2] = {0};
 volatile uint8_t g_dbg_dm_mos_temp[2] = {0};
 volatile uint8_t g_dbg_dm_enabled[2] = {0};
+/* DM 状态码（反馈 data[0]>>4）：0=失能 1=使能 8=过压 9=欠压 A=过流
+ * B=MOS过温 C=线圈过温 D=通信丢失 E=过载；非 0/1 即电机进入保护。 */
+volatile uint8_t g_dbg_dm_status_code[2] = {0};
 volatile uint32_t g_dbg_can1_tx_cnt = 0;  ///< CAN1（DM 电机帧）发送次数
 volatile uint32_t g_dbg_can2_tx_cnt = 0;  ///< CAN2（G2C 双板帧）发送次数
 
@@ -94,7 +97,7 @@ void CommTaskInit(void)
   /* 4. IWDG 已在 main.c 的 MX_IWDG_Init() 中启动，阻塞初始化结束后由
    *    MainTaskInit 统一喂一次；本任务负责运行期周期喂狗。 */
   /* 5. 调试镜像：写入固件标识，便于 Ozone 确认已烧录本次云台 ELF。 */
-  g_dbg_fw_tag = 0x20261114u;
+  g_dbg_fw_tag = 0x20261115u;
 }
 
 void CommTask(void)
@@ -141,6 +144,7 @@ void CommTask(void)
     g_dbg_dm_rotor_temp[i] = dm->rotor_temp();
     g_dbg_dm_mos_temp[i] = dm->mos_temp();
     g_dbg_dm_enabled[i] = dm->is_enabled() ? 1u : 0u;
+    g_dbg_dm_status_code[i] = static_cast<uint8_t>(dm->status_code());
   }
 
   /* 3. 喂独立看门狗（1ms 周期，600ms 超时；调试期可置 DEBUG_NO_IWDG=1 关闭） */
