@@ -59,10 +59,18 @@ uint8_t g_rc_rx_buf[kRcRxLen];
 volatile uint32_t g_dbg_dbus_rx_ok = 0;   ///< 成功解包的 DBUS 帧数
 volatile uint32_t g_dbg_dbus_rx_bad = 0;  ///< Size 异常（半帧/错帧）次数
 volatile uint32_t g_dbg_c2g_tx_cnt = 0;   ///< C2G 双板帧发送次数
-/* 固件标识（2026-11-08 DBUS 修复）：Ozone 里确认已烧录本次固件；烧旧固件时该值不会更新 */
-volatile uint32_t g_dbg_fw_tag = 0x20261108u;
+/* 固件标识（2026-11-08 DBUS 修复）：Ozone 里确认已烧录本次固件。
+ * 注意：必须 used+retain，否则未引用的全局会被 --gc-sections 删掉，Ozone 会把它
+ * 解析到地址 0（读到 0x20020000 = 初始栈顶），从而"看起来烧错了固件"。 */
+__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261108u;
 volatile uint8_t g_dbg_dbus_last_evt = 0;  ///< 最近一次 UART 事件类型 0=TC 1=HT 2=IDLE
 volatile uint16_t g_dbg_dbus_last_size = 0; ///< 最近一次 UART 事件长度（正常 TC=18，帧后 IDLE=0）
+/* 便于 Ozone 单变量观察的标量摘录（数组在 Ozone 里展开不方便时用） */
+volatile uint8_t g_dbg_dbus_raw5 = 0;    ///< g_dbg_dbus_raw[5]（拨杆位所在字节）
+volatile uint8_t g_dbg_dbus_raw16 = 0;   ///< g_dbg_dbus_raw[16]（拨轮低字节）
+volatile uint8_t g_dbg_dbus_raw17 = 0;   ///< g_dbg_dbus_raw[17]（拨轮高字节）
+volatile uint16_t g_dbg_dbus_sum = 0;    ///< 当前帧 18 字节按字节求和（帧内容变化即变）
+volatile uint16_t g_dbg_dbus_chg_sum = 0; ///< g_dbg_dbus_chg 全数组求和（>0 表示有字节变过）
 
 /* DBUS 原始解码镜像（Ozone Live Watch 用）：拨杆/摇杆"可读性"自检。
  * 拨杆取值：1=上、2=下、3=中（见 inc/DT7.hpp 的 SwitchState）；
@@ -93,6 +101,15 @@ void CommTaskInit(void) {
   }
   (void)GetRemoteControl();
   (void)GetGimbalChassisComm();
+
+  /* 固件标识/原始帧镜像的"已初始化"标记：
+   *  - g_dbg_fw_tag 写回一次，保证它被引用而不会被 --gc-sections 删除；
+   *  - g_dbg_dbus_raw 预填 0xEE：若 Ozone 里看到 0xEE 说明接收回调没有写这块内存
+   *    （符号地址不匹配/回调没跑），若看到真实字节说明链路正常。 */
+  g_dbg_fw_tag = 0x20261108u;
+  for (uint16_t i = 0; i < kRcRxLen; ++i) {
+    g_dbg_dbus_raw[i] = 0xEEu;
+  }
 
   /* 2. CAN 接收滤波器（全收：CAN1→FIFO0，CAN2→FIFO1，契约 §4.2） */
   CanFilter_Init(&hcan1);
@@ -215,11 +232,20 @@ extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart,
   /* 原始帧镜像 + 位变化掩码（协议排查：拨某个控件时哪些位在变） */
   {
     static uint8_t prev_raw[kRcRxLen] = {0};
+    uint16_t sum = 0;
+    uint16_t chg_sum = 0;
     for (uint16_t i = 0; i < kRcRxLen; ++i) {
       g_dbg_dbus_raw[i] = g_rc_rx_buf[i];
       g_dbg_dbus_chg[i] |= static_cast<uint8_t>(g_rc_rx_buf[i] ^ prev_raw[i]);
       prev_raw[i] = g_rc_rx_buf[i];
+      sum = static_cast<uint16_t>(sum + g_rc_rx_buf[i]);
+      chg_sum = static_cast<uint16_t>(chg_sum + g_dbg_dbus_chg[i]);
     }
+    g_dbg_dbus_raw5 = g_rc_rx_buf[5];
+    g_dbg_dbus_raw16 = g_rc_rx_buf[16];
+    g_dbg_dbus_raw17 = g_rc_rx_buf[17];
+    g_dbg_dbus_sum = sum;
+    g_dbg_dbus_chg_sum = chg_sum;
   }
 
   remote->decode(g_rc_rx_buf);
