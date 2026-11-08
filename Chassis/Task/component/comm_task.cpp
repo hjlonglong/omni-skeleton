@@ -60,6 +60,18 @@ volatile uint32_t g_dbg_dbus_rx_ok = 0;   ///< 成功解包的 DBUS 帧数
 volatile uint32_t g_dbg_dbus_rx_bad = 0;  ///< Size 异常（半帧/错帧）次数
 volatile uint32_t g_dbg_c2g_tx_cnt = 0;   ///< C2G 双板帧发送次数
 
+/* DBUS 原始解码镜像（Ozone Live Watch 用）：拨杆/摇杆"可读性"自检。
+ * 拨杆取值：1=上、2=下、3=中（见 inc/DT7.hpp 的 SwitchState）；
+ * 摇杆/拨轮取值 [-1, 1]，回中约 0。每收到一帧刷新一次（约 14 ms）。 */
+volatile uint8_t g_dbg_rc_online = 0;   ///< IsRemoteOnline() 镜像：1=100 ms 内收到过帧
+volatile uint8_t g_dbg_rc_l_switch = 0; ///< 左拨杆 1=上 2=下 3=中
+volatile uint8_t g_dbg_rc_r_switch = 0; ///< 右拨杆 1=上 2=下 3=中
+volatile float g_dbg_rc_lv = 0.0f;      ///< 左摇杆竖直 [-1,1]
+volatile float g_dbg_rc_lh = 0.0f;      ///< 左摇杆水平 [-1,1]
+volatile float g_dbg_rc_rv = 0.0f;      ///< 右摇杆竖直 [-1,1]
+volatile float g_dbg_rc_rh = 0.0f;      ///< 右摇杆水平 [-1,1]
+volatile float g_dbg_rc_wheel = 0.0f;   ///< 拨轮 [-1,1]
+
 /* Exported function definitions ---------------------------------------------*/
 void CommTaskInit(void) {
   /* 1. 先触发 Instance 层实例化：4 个轮电机 + 遥控解码器（保证首次构造发生在
@@ -135,6 +147,10 @@ void CommTask(void) {
     g_dbg_c2g_tx_cnt += 1;
   }
 
+  /* 3. 遥控在线状态镜像（Ozone 直读；>100 ms 无帧即为 0） */
+  g_dbg_rc_online =
+      hello_world::remote_control::IsRemoteOnline() ? 1u : 0u;
+
 #if DEBUG_NO_IWDG == 0
   /* 3. 契约 §8.2：在 1 ms 任务链末尾刷新 IWDG。本函数运行在 TIM6 中断里，
    *    若中断卡死/任务链停摆则会停止喂狗 → 底盘板 ~300 ms 后复位。 */
@@ -167,6 +183,14 @@ extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart,
     return;
   }
   remote->decode(g_rc_rx_buf);
+  /* 镜像解码结果（Ozone Live Watch，拨杆/摇杆可读性自检） */
+  g_dbg_rc_l_switch = static_cast<uint8_t>(remote->rc_l_switch());
+  g_dbg_rc_r_switch = static_cast<uint8_t>(remote->rc_r_switch());
+  g_dbg_rc_lv = remote->rc_lv();
+  g_dbg_rc_lh = remote->rc_lh();
+  g_dbg_rc_rv = remote->rc_rv();
+  g_dbg_rc_rh = remote->rc_rh();
+  g_dbg_rc_wheel = remote->rc_wheel();
   /* 刷新遥控在线时间戳（>100 ms 未刷新 → Robot 判遥控离线并回 Dead） */
   hello_world::remote_control::NotifyRemoteRx();
   g_dbg_dbus_rx_ok += 1;

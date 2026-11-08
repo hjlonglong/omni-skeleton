@@ -87,4 +87,4 @@ cmake --build --preset Debug -j 8
 | Chassis | 677 | 0 error / 0 warning | 62,688 B | 280 B | 8,168 B |
 | Gimbal | 678 | 0 error / 0 warning | 65,168 B | 112 B | 8,072 B |
 
-无硬件自测：底盘主机 harness `D:\rm\task8_selftest\test_logic.exe`（76/76 PASS）；云台 `gimbal_math.hpp` 15 条 `static_assert` 随构建验证。Ozone 可观测 `robot::robot_debug`、`robot::gimbal_debug`、`g_dbg_*`、`g_can_*` 等调试变量。
+无硬件自测：底盘主机 harness `D:\rm\task8_selftest\test_logic.exe`（76/76 PASS）；云台 `gimbal_math.hpp` 15 条 `static_assert` 随构建验证。Ozone 可观测 `robot::robot_debug`、`robot::gimbal_debug`、`g_dbg_*`、`g_can_*` 等调试变量。DBUS 链路自检变量（2026-11-08 起）：`g_dbg_dbus_rx_ok`（约 70 帧/s）、`g_dbg_dbus_rx_bad`、`g_dbg_rc_online`、`g_dbg_rc_l_switch`/`g_dbg_rc_r_switch`（1=上/2=下/3=中）、`g_dbg_rc_lv`/`lh`/`rv`/`rh`/`wheel`（[-1,1]）。
