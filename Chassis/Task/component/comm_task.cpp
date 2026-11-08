@@ -59,6 +59,8 @@ uint8_t g_rc_rx_buf[kRcRxLen];
 volatile uint32_t g_dbg_dbus_rx_ok = 0;   ///< 成功解包的 DBUS 帧数
 volatile uint32_t g_dbg_dbus_rx_bad = 0;  ///< Size 异常（半帧/错帧）次数
 volatile uint32_t g_dbg_c2g_tx_cnt = 0;   ///< C2G 双板帧发送次数
+/* 固件标识（2026-11-08 DBUS 修复）：Ozone 里确认已烧录本次固件；烧旧固件时该值不会更新 */
+volatile uint32_t g_dbg_fw_tag = 0x20261108u;
 volatile uint8_t g_dbg_dbus_last_evt = 0;  ///< 最近一次 UART 事件类型 0=TC 1=HT 2=IDLE
 volatile uint16_t g_dbg_dbus_last_size = 0; ///< 最近一次 UART 事件长度（正常 TC=18，帧后 IDLE=0）
 
@@ -167,13 +169,15 @@ void CommTask(void) {
  * @param   huart: UART 句柄
  * @param   Size:  本次事件对应的接收字节数
  * @retval  None
- * @note    循环 DMA（CIRCULAR）+ 空闲中断模式下，同一帧会先后产生两个事件：
- *          1) DMA 传输完成 TC：Size == 18，此时缓冲里是一整帧 → 解码；
- *          2) 随后总线空闲 IDLE：HAL 用 RxXferSize - NDTR 计算长度，循环 DMA
- *             的 NDTR 在 TC 后已自动重装为 18，因此 IDLE 事件的 Size 为 0。
- *          所以 IDLE 的 0 长度事件不是错误帧，直接忽略；否则 bad 会与 ok
- *          1:1 同步增长（V1.1.1 修正）。半帧仅指非 TC 事件里出现了非 18 的
- *          非零长度，或 TC 事件长度异常。
+ * @note    `HAL_UARTEx_ReceiveToIdle_DMA` + 循环 DMA 下，同一帧会依次产生三个
+ *          事件（本工程 HAL 1.8.3，DMA 半传输中断因 XferHalfCpltCallback 非空
+ *          被 HAL_DMA_Start_IT 打开）：
+ *            1) HT  半传输：RxEventType=HT，  Size = RxXferSize/2 = 9；
+ *            2) TC  传输完成：RxEventType=TC，Size = 18（完整一帧）→ 解码；
+ *            3) IDLE 总线空闲：Size = RxXferSize - RxXferCount = 0。
+ *          只有 TC 事件代表"完整 18 字节已收齐"，其余事件一律忽略，不参与
+ *          bad 统计；否则 bad 会与 ok 1:1 同步增长（V1.1.2 修正）。
+ *          bad 仅统计"TC 事件但长度不是 18"这种理论不应出现的异常。
  */
 extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart,
                                            uint16_t Size) {
@@ -185,11 +189,8 @@ extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart,
   g_dbg_dbus_last_evt = static_cast<uint8_t>(huart->RxEventType);
   g_dbg_dbus_last_size = Size;
 
+  /* 只处理 DMA 传输完成（TC）事件：此时 18 字节整帧已落在 g_rc_rx_buf 里。 */
   if (huart->RxEventType != HAL_UART_RXEVENT_TC) {
-    /* 帧后的正常 IDLE 事件（Size==0）不是错误；其余异常长度才算半帧。 */
-    if (Size != 0u && Size != kRcRxLen) {
-      g_dbg_dbus_rx_bad += 1;
-    }
     return;
   }
 

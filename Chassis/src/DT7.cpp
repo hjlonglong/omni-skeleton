@@ -41,8 +41,12 @@ void DT7::decode(const uint8_t rx_data[kRcRxDataLen])
   tmp = rx_data[16] | (rx_data[17] << 8);
   rc_wheel_ = (tmp - kRcOffset) * kRcRatio;
 
-  rc_l_switch_ = SwitchState(((rx_data[5] >> 4) & 0x000C) >> 2);
-  rc_r_switch_ = SwitchState((rx_data[5] >> 4) & 0x0003);
+  /* 拨杆位域（DBUS 第 5 字节高半字节）：bit4-5 = 左拨杆 s1，bit6-7 = 右拨杆 s2。
+   * 2026-11-08 修正：原实现左右写反，导致拨左拨杆时 rc_l_switch 不变，而是一直
+   * 跟随右拨杆（现象：拨左拨杆时 g_dbg_rc_l_switch 恒为 3）。官方 sbus_to_rc()
+   * 的对应关系是 s[0] = &0x0003（左）、s[1] = (>>4 & 0x000C) >> 2（右）。 */
+  rc_l_switch_ = SwitchState((rx_data[5] >> 4) & 0x0003);
+  rc_r_switch_ = SwitchState(((rx_data[5] >> 4) & 0x000C) >> 2);
 
   mouse_x_ = rx_data[6] | (rx_data[7] << 8);
   mouse_y_ = rx_data[8] | (rx_data[9] << 8);
