@@ -207,7 +207,10 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
     hdma_usart3_rx.Init.MemInc = DMA_MINC_ENABLE;
     hdma_usart3_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
     hdma_usart3_rx.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
-    hdma_usart3_rx.Init.Mode = DMA_CIRCULAR;
+    /* DBUS 接收用普通模式（非循环）：每帧由 IDLE 事件界定，
+     * 在回调中 Abort+重启接收，保证帧从 g_rc_rx_buf[0] 开始，
+     * 避免循环 DMA 从半帧启动导致字段整体错位（详见 comm_task.cpp）。 */
+    hdma_usart3_rx.Init.Mode = DMA_NORMAL;
     hdma_usart3_rx.Init.Priority = DMA_PRIORITY_VERY_HIGH;
     hdma_usart3_rx.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
     if (HAL_DMA_Init(&hdma_usart3_rx) != HAL_OK)

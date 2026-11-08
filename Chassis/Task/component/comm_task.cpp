@@ -194,15 +194,16 @@ void CommTask(void) {
  * @param   huart: UART 句柄
  * @param   Size:  本次事件对应的接收字节数
  * @retval  None
- * @note    `HAL_UARTEx_ReceiveToIdle_DMA` + 循环 DMA 下，同一帧会依次产生三个
- *          事件（本工程 HAL 1.8.3，DMA 半传输中断因 XferHalfCpltCallback 非空
- *          被 HAL_DMA_Start_IT 打开）：
- *            1) HT  半传输：RxEventType=HT，  Size = RxXferSize/2 = 9；
- *            2) TC  传输完成：RxEventType=TC，Size = 18（完整一帧）→ 解码；
- *            3) IDLE 总线空闲：Size = RxXferSize - RxXferCount = 0。
- *          只有 TC 事件代表"完整 18 字节已收齐"，其余事件一律忽略，不参与
- *          bad 统计；否则 bad 会与 ok 1:1 同步增长（V1.1.2 修正）。
- *          bad 仅统计"TC 事件但长度不是 18"这种理论不应出现的异常。
+ * @note    V1.2.1 起 DBUS 接收改为“非循环 DMA + 按帧边界重启”（解决帧窗口
+ *          未对齐导致的字段整体旋转：表现如“拨左拨杆时轮速变化、右拨杆/
+ *          拨轮无反应”）：
+ *            - USART3_RX 的 DMA 改为 DMA_NORMAL（见 usart.c）；
+ *            - HT 半传输事件直接忽略，它不是帧边界，重启会破坏对齐；
+ *            - TC / IDLE 事件才是帧边界：
+ *                Size == 18 → 完整一帧，镜像 + 解码；
+ *                Size != 18 → 上次重启落在帧中间，丢弃该段（bad++）；
+ *              随后 AbortReceive + 重新 ReceiveToIdle_DMA，使下一帧从
+ *              g_rc_rx_buf[0] 开始，最多 2 帧即可完成对齐。
  */
 extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart,
                                            uint16_t Size) {
@@ -210,54 +211,55 @@ extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart,
     return;
   }
 
-  /* 事件诊断镜像（Ozone）：0=TC 1=HT 2=IDLE */
+  /* 事件诊断镜像（Ozone）：0=HT 1=TC 2=IDLE */
   g_dbg_dbus_last_evt = static_cast<uint8_t>(huart->RxEventType);
   g_dbg_dbus_last_size = Size;
 
-  /* 只处理 DMA 传输完成（TC）事件：此时 18 字节整帧已落在 g_rc_rx_buf 里。 */
-  if (huart->RxEventType != HAL_UART_RXEVENT_TC) {
+  /* 半传输不是帧边界：忽略，且不重启接收（重启会破坏帧对齐）。 */
+  if (huart->RxEventType == HAL_UART_RXEVENT_HT) {
     return;
   }
 
-  if (Size != kRcRxLen) {
-    g_dbg_dbus_rx_bad += 1;  /* TC 但长度异常：理论不应出现 */
-    return;
-  }
+  if (Size == kRcRxLen) {
+    hello_world::remote_control::DT7 *remote = GetRemoteControl();
+    if (remote != nullptr) {
+      /* 原始帧镜像 + 位变化掩码（协议排查：拨某个控件时哪些位在变） */
+      static uint8_t prev_raw[kRcRxLen] = {0};
+      uint16_t sum = 0;
+      uint16_t chg_sum = 0;
+      for (uint16_t i = 0; i < kRcRxLen; ++i) {
+        g_dbg_dbus_raw[i] = g_rc_rx_buf[i];
+        g_dbg_dbus_chg[i] |=
+            static_cast<uint8_t>(g_rc_rx_buf[i] ^ prev_raw[i]);
+        prev_raw[i] = g_rc_rx_buf[i];
+        sum = static_cast<uint16_t>(sum + g_rc_rx_buf[i]);
+        chg_sum = static_cast<uint16_t>(chg_sum + g_dbg_dbus_chg[i]);
+      }
+      g_dbg_dbus_raw5 = g_rc_rx_buf[5];
+      g_dbg_dbus_raw16 = g_rc_rx_buf[16];
+      g_dbg_dbus_raw17 = g_rc_rx_buf[17];
+      g_dbg_dbus_sum = sum;
+      g_dbg_dbus_chg_sum = chg_sum;
 
-  hello_world::remote_control::DT7 *remote = GetRemoteControl();
-  if (remote == nullptr) {
-    return;
-  }
-
-  /* 原始帧镜像 + 位变化掩码（协议排查：拨某个控件时哪些位在变） */
-  {
-    static uint8_t prev_raw[kRcRxLen] = {0};
-    uint16_t sum = 0;
-    uint16_t chg_sum = 0;
-    for (uint16_t i = 0; i < kRcRxLen; ++i) {
-      g_dbg_dbus_raw[i] = g_rc_rx_buf[i];
-      g_dbg_dbus_chg[i] |= static_cast<uint8_t>(g_rc_rx_buf[i] ^ prev_raw[i]);
-      prev_raw[i] = g_rc_rx_buf[i];
-      sum = static_cast<uint16_t>(sum + g_rc_rx_buf[i]);
-      chg_sum = static_cast<uint16_t>(chg_sum + g_dbg_dbus_chg[i]);
+      remote->decode(g_rc_rx_buf);
+      /* 镜像解码结果（Ozone Live Watch，拨杆/摇杆可读性自检） */
+      g_dbg_rc_l_switch = static_cast<uint8_t>(remote->rc_l_switch());
+      g_dbg_rc_r_switch = static_cast<uint8_t>(remote->rc_r_switch());
+      g_dbg_rc_lv = remote->rc_lv();
+      g_dbg_rc_lh = remote->rc_lh();
+      g_dbg_rc_rv = remote->rc_rv();
+      g_dbg_rc_rh = remote->rc_rh();
+      g_dbg_rc_wheel = remote->rc_wheel();
+      /* 刷新遥控在线时间戳（>100 ms 未刷新 → Robot 判遥控离线并回 Dead） */
+      hello_world::remote_control::NotifyRemoteRx();
+      g_dbg_dbus_rx_ok += 1;
     }
-    g_dbg_dbus_raw5 = g_rc_rx_buf[5];
-    g_dbg_dbus_raw16 = g_rc_rx_buf[16];
-    g_dbg_dbus_raw17 = g_rc_rx_buf[17];
-    g_dbg_dbus_sum = sum;
-    g_dbg_dbus_chg_sum = chg_sum;
+  } else {
+    /* 非整帧：上次重启落在帧中间（或丢包），丢弃并重新对齐。 */
+    g_dbg_dbus_rx_bad += 1;
   }
 
-  remote->decode(g_rc_rx_buf);
-  /* 镜像解码结果（Ozone Live Watch，拨杆/摇杆可读性自检） */
-  g_dbg_rc_l_switch = static_cast<uint8_t>(remote->rc_l_switch());
-  g_dbg_rc_r_switch = static_cast<uint8_t>(remote->rc_r_switch());
-  g_dbg_rc_lv = remote->rc_lv();
-  g_dbg_rc_lh = remote->rc_lh();
-  g_dbg_rc_rv = remote->rc_rv();
-  g_dbg_rc_rh = remote->rc_rh();
-  g_dbg_rc_wheel = remote->rc_wheel();
-  /* 刷新遥控在线时间戳（>100 ms 未刷新 → Robot 判遥控离线并回 Dead） */
-  hello_world::remote_control::NotifyRemoteRx();
-  g_dbg_dbus_rx_ok += 1;
+  /* 关键：从当前帧边界重启接收，保证下一帧从 g_rc_rx_buf[0] 开始。 */
+  (void)HAL_UART_AbortReceive(&huart3);
+  (void)HAL_UARTEx_ReceiveToIdle_DMA(&huart3, g_rc_rx_buf, kRcRxLen);
 }
