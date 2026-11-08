@@ -59,6 +59,8 @@ uint8_t g_rc_rx_buf[kRcRxLen];
 volatile uint32_t g_dbg_dbus_rx_ok = 0;   ///< 成功解包的 DBUS 帧数
 volatile uint32_t g_dbg_dbus_rx_bad = 0;  ///< Size 异常（半帧/错帧）次数
 volatile uint32_t g_dbg_c2g_tx_cnt = 0;   ///< C2G 双板帧发送次数
+volatile uint8_t g_dbg_dbus_last_evt = 0;  ///< 最近一次 UART 事件类型 0=TC 1=HT 2=IDLE
+volatile uint16_t g_dbg_dbus_last_size = 0; ///< 最近一次 UART 事件长度（正常 TC=18，帧后 IDLE=0）
 
 /* DBUS 原始解码镜像（Ozone Live Watch 用）：拨杆/摇杆"可读性"自检。
  * 拨杆取值：1=上、2=下、3=中（见 inc/DT7.hpp 的 SwitchState）；
@@ -165,19 +167,37 @@ void CommTask(void) {
  * @param   huart: UART 句柄
  * @param   Size:  本次事件对应的接收字节数
  * @retval  None
- * @note    空闲 + DMA 接收模式下，收满 kRcRxDataLen 字节触发一次回调；CIRCULAR
- *          DMA 会在回调返回后自动从缓冲头继续接收，因此无需重启。
- *          半帧（Size 不是 18）直接丢弃并计数；首帧到达前 Robot 判遥控离线。
+ * @note    循环 DMA（CIRCULAR）+ 空闲中断模式下，同一帧会先后产生两个事件：
+ *          1) DMA 传输完成 TC：Size == 18，此时缓冲里是一整帧 → 解码；
+ *          2) 随后总线空闲 IDLE：HAL 用 RxXferSize - NDTR 计算长度，循环 DMA
+ *             的 NDTR 在 TC 后已自动重装为 18，因此 IDLE 事件的 Size 为 0。
+ *          所以 IDLE 的 0 长度事件不是错误帧，直接忽略；否则 bad 会与 ok
+ *          1:1 同步增长（V1.1.1 修正）。半帧仅指非 TC 事件里出现了非 18 的
+ *          非零长度，或 TC 事件长度异常。
  */
 extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart,
                                            uint16_t Size) {
   if (huart != &huart3) {
     return;
   }
-  if (Size != kRcRxLen) {
-    g_dbg_dbus_rx_bad += 1;  /* 半帧/异常帧：丢弃，等下一帧对齐 */
+
+  /* 事件诊断镜像（Ozone）：0=TC 1=HT 2=IDLE */
+  g_dbg_dbus_last_evt = static_cast<uint8_t>(huart->RxEventType);
+  g_dbg_dbus_last_size = Size;
+
+  if (huart->RxEventType != HAL_UART_RXEVENT_TC) {
+    /* 帧后的正常 IDLE 事件（Size==0）不是错误；其余异常长度才算半帧。 */
+    if (Size != 0u && Size != kRcRxLen) {
+      g_dbg_dbus_rx_bad += 1;
+    }
     return;
   }
+
+  if (Size != kRcRxLen) {
+    g_dbg_dbus_rx_bad += 1;  /* TC 但长度异常：理论不应出现 */
+    return;
+  }
+
   hello_world::remote_control::DT7 *remote = GetRemoteControl();
   if (remote == nullptr) {
     return;
