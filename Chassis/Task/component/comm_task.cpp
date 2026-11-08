@@ -76,6 +76,14 @@ volatile float g_dbg_rc_rv = 0.0f;      ///< 右摇杆竖直 [-1,1]
 volatile float g_dbg_rc_rh = 0.0f;      ///< 右摇杆水平 [-1,1]
 volatile float g_dbg_rc_wheel = 0.0f;   ///< 拨轮 [-1,1]
 
+/* DBUS 原始帧镜像 + 位变化掩码（协议排查用，Ozone 可直接看数组）：
+ *  - g_dbg_dbus_raw[0..17]：最近一帧的原始 18 字节；
+ *  - g_dbg_dbus_chg[0..17]：按位累计"曾经变化过"的掩码（每帧与上一帧异或后
+ *    按位或，上电清零）。用法：上电后只拨动某一个控件几秒，再观察哪些字节的
+ *    掩码非零，就能确认该控件的数据到底落在帧的哪个字节/哪些位上。 */
+volatile uint8_t g_dbg_dbus_raw[kRcRxLen] = {0};
+volatile uint8_t g_dbg_dbus_chg[kRcRxLen] = {0};
+
 /* Exported function definitions ---------------------------------------------*/
 void CommTaskInit(void) {
   /* 1. 先触发 Instance 层实例化：4 个轮电机 + 遥控解码器（保证首次构造发生在
@@ -203,6 +211,17 @@ extern "C" void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart,
   if (remote == nullptr) {
     return;
   }
+
+  /* 原始帧镜像 + 位变化掩码（协议排查：拨某个控件时哪些位在变） */
+  {
+    static uint8_t prev_raw[kRcRxLen] = {0};
+    for (uint16_t i = 0; i < kRcRxLen; ++i) {
+      g_dbg_dbus_raw[i] = g_rc_rx_buf[i];
+      g_dbg_dbus_chg[i] |= static_cast<uint8_t>(g_rc_rx_buf[i] ^ prev_raw[i]);
+      prev_raw[i] = g_rc_rx_buf[i];
+    }
+  }
+
   remote->decode(g_rc_rx_buf);
   /* 镜像解码结果（Ozone Live Watch，拨杆/摇杆可读性自检） */
   g_dbg_rc_l_switch = static_cast<uint8_t>(remote->rc_l_switch());
