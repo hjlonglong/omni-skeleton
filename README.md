@@ -18,7 +18,7 @@
 | O 型全向轮运动学 | ✅ | `Chassis/inc/chassis_ik_solver.hpp`、`Chassis/RobotModules/component/chassis.cpp` | 云台系速度 → δ 旋转 → 车体系 → 4 轮逆解 → 轮速环；安装角/几何/符号为可配常量（默认值待实车标定） |
 | 底盘三模式 | ✅ | `Chassis/RobotModules/component/robot.cpp` | 分离（自转取拨轮）/ 跟随（云台 δ 跟随 PID）/ 小陀螺（平移方向仍随云台）；左拨杆切换，30 ms 去抖 |
 | 云台两轴控制 | ✅ | `Gimbal/RobotModules/component/gimbal.cpp`、`Gimbal/RobotModules/component/robot.cpp` | yaw 世界目标 − 底盘 IMU yaw → 关节目标；pitch 软限位 [-0.35, +0.55] rad；位置环 → 速度环 → DM MIT 力矩 |
-| DM-J4310 收发 | ✅ | `Gimbal/inc/motor_DaMiao.hpp`、`Gimbal/src/motor_DaMiao.cpp`、`Gimbal/src/HW_can.cpp` | CAN1 反馈解码；MIT 纯力矩 `setMitInput(0,0,0,0,τ)`；已修 CAN2SB 滤波组缺陷 |
+| DM-J4310 收发 | ✅ | `Gimbal/inc/motor_DaMiao.hpp`、`Gimbal/src/motor_DaMiao.cpp`、`Gimbal/src/HW_can.cpp` | yaw=CAN1、pitch=CAN2 反馈解码；MIT 纯力矩 `setMitInput(0,0,0,0,τ)`；已修 CAN2SB 滤波组缺陷 |
 | 双板通讯帧 | ✅ | `RobotComponents/component/gimbal_chassis_comm.*`、`Task/component/comm_task.cpp`、`src/HW_can.cpp` | C2G 0x210 / G2C 0x211，8 字节大端，两板每 1 ms 收发；v1.1：C2G b2-3=云台期望世界 yaw、b4-5=期望 pitch |
 | 看门狗（IWDG） | ✅ | `Core/Src/iwdg.c`、两板 `Task/component/comm_task.cpp` | 初始化末尾喂一次；`CommTask` 每 1 ms 喂狗（1 ms 链末）；`DEBUG_NO_IWDG=1` 仅台架+调试器使用 |
 | 单轮台架调试任务 | ✅ | `Task/component/control_task.hpp`、`Task/component/control_task.cpp` | `TEST_MODE=1` 时单轮三角波扫掠（±40 rad/s、2 A、15 s 归零），`g_dbg_*` 可 Ozone 观测；`0` 时完全不覆盖 Robot 输出 |
@@ -26,7 +26,7 @@
 ## 完成进度（P2，2026-11-07）
 
 - ✅ 底盘板完整控制链：DBUS → 三态状态机 → 三模式 → δ 变换 → O 型逆解 → 4 轮速度环 → 0x200；C2G 每周期发送；IWDG 1 ms 链末喂狗。
-- ✅ 云台板完整控制链：C2G 目标消费 → 三态状态机 → yaw 世界坐标换算 + pitch 软限位 → 位置环/速度环 → DM MIT 力矩；G2C 每周期回发；CAN2SB 缺陷修复。
+- ✅ 云台板完整控制链：C2G 目标消费 → 三态状态机 → yaw 世界坐标换算 + pitch 软限位 → 位置环/速度环 → DM MIT 力矩；G2C 回发（CAN1，100 Hz）；CAN2SB 缺陷修复。双板帧走两板相连的 CAN1（`kInterboardPeriodMs=10`，避免与 4×M3508 共用总线超载）。
 - ✅ 双板协议：0x210/0x211 每 1 ms 收发、`isOffline()` 100 ms 阈值、v1.1 云台目标角语义；两板 `RobotComponents` 头文件同源。
 - ✅ 安全：急停/遥控离线/云台离线/IMU 未标定/电机反馈超时 → Dead + 全轴零输出；交付态 `TEST_MODE=0`、`DEBUG_NO_IWDG=0`。
 - 🟡 无硬件自测：底盘主机 harness **76/76 PASS**（DT7 解码、三态机、三模式、δ、逆解、帧往返、集成序列）；云台 15 条编译期 `static_assert`；两板 L0 全量构建 0 error / 0 warning。
