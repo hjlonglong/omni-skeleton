@@ -5,13 +5,17 @@
  * @history   :
  *  Version     Date            Author          Note
  *  V1.0.0      2026-11-07      Agent C         1. WP-08/16：CAN 启动、电机帧、G2C 帧、IWDG
+ *  V1.1.0      2026-11-08      Lead            1. 按实物拓扑收发：CAN1 = yaw 电机 +
+ *                                                双板帧；CAN2 = pitch 电机
  *******************************************************************************
  * @attention :
  *  1. 本板不接 DBUS 遥控器：遥控状态经底盘板 C2G 帧下发，故无 UART 空闲/DMA 接收
  *     （ins_comm.cpp 的 GetRemoteControl() 恒返回 nullptr，契约 §7.1/§7.4）。
- *  2. CommTaskInit 中必须先构造电机/双板通讯对象，再开 CAN 接收中断：
+ *  2. 2026-11-08 实物通讯拓扑：两板 CAN1 物理相连（双板帧走 CAN1）；
+ *     yaw DM 在 CAN1、pitch DM 在 CAN2（与发射机构同总线）。
+ *  3. CommTaskInit 中必须先构造电机/双板通讯对象，再开 CAN 接收中断：
  *     中断回调里会用到这些函数内 static 对象。
- *  3. 本任务 1ms 执行一次：两轴 DM 各一帧 + G2C 一帧；IWDG 只在这里喂
+ *  4. 本任务 1ms 执行一次：两轴 DM 各一帧 + G2C 一帧；IWDG 只在这里喂
  *     （DEBUG_NO_IWDG=0 交付态）。
  *******************************************************************************
  *  Copyright (c) 2024 Hello World Team, Zhejiang University.
@@ -41,10 +45,10 @@ constexpr uint32_t kCanErrIrqMask =
     CAN_IT_LAST_ERROR_CODE;  ///< 需要开中断的 CAN 错误类型
 }  // namespace
 
-/* 固件标识（2026-11-08 云台 IMU 检测版）：Ozone 里确认烧的是本次 ELF。
+/* 固件标识（2026-11-08 云台 CAN 拓扑适配版）：Ozone 里确认烧的是本次 ELF。
  * 必须 used+retain，否则未被引用的全局会被 --gc-sections 删除，Ozone 会把它
  * 解析到无效地址（读到 0x20020000 = 初始栈顶），看起来像"烧错固件"。 */
-__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261116u;
+__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261122u;
 
 /* DM 电机状态镜像（Ozone Live Watch；每 1 ms 刷新，只读不影响控制）----------
  * 数组索引：0 = yaw，1 = pitch（与 GetMotorYaw()/GetMotorPitch() 顺序一致）。
@@ -62,8 +66,9 @@ volatile uint8_t g_dbg_dm_enabled[2] = {0};
 /* DM 状态码（反馈 data[0]>>4）：0=失能 1=使能 8=过压 9=欠压 A=过流
  * B=MOS过温 C=线圈过温 D=通信丢失 E=过载；非 0/1 即电机进入保护。 */
 volatile uint8_t g_dbg_dm_status_code[2] = {0};
-volatile uint32_t g_dbg_can1_tx_cnt = 0;  ///< CAN1（DM 电机帧）发送次数
-volatile uint32_t g_dbg_can2_tx_cnt = 0;  ///< CAN2（G2C 双板帧）发送次数
+volatile uint32_t g_dbg_can1_tx_cnt = 0;  ///< CAN1（yaw 电机帧）发送次数
+volatile uint32_t g_dbg_can2_tx_cnt = 0;  ///< CAN2（pitch 电机帧）发送次数
+volatile uint32_t g_dbg_g2c_tx_cnt = 0;   ///< G2C 双板帧（CAN1）发送次数
 
 /* Exported function definitions ---------------------------------------------*/
 
@@ -74,7 +79,8 @@ void CommTaskInit(void)
   (void)GetMotorPitch();
   (void)GetGimbalChassisComm();
 
-  /* 2. 初始化 CAN1（云台电机总线）/ CAN2（双板总线）滤波器并启动外设 */
+  /* 2. 初始化 CAN 滤波器并启动外设。2026-11-08 实物拓扑：
+   *    CAN1 = yaw 电机 + 双板帧（两板 CAN1 相连）；CAN2 = pitch 电机（+发射机构）。 */
   CanFilter_Init(&hcan1);
   CanFilter_Init(&hcan2);
   if (HAL_CAN_Start(&hcan1) != HAL_OK) {
@@ -97,7 +103,7 @@ void CommTaskInit(void)
   /* 4. IWDG 已在 main.c 的 MX_IWDG_Init() 中启动，阻塞初始化结束后由
    *    MainTaskInit 统一喂一次；本任务负责运行期周期喂狗。 */
   /* 5. 调试镜像：写入固件标识，便于 Ozone 确认已烧录本次云台 ELF。 */
-  g_dbg_fw_tag = 0x20261116u;
+  g_dbg_fw_tag = 0x20261122u;
 }
 
 void CommTask(void)
@@ -105,8 +111,12 @@ void CommTask(void)
   uint8_t tx_data[kCanFrameLen] = {0};
   hello_world::motor::Motor *const motors[kAxisNum] = {GetMotorYaw(),
                                                        GetMotorPitch()};
+  /* 2026-11-08 实物拓扑：yaw 在 CAN1，pitch 在 CAN2（config 可改） */
+  CAN_HandleTypeDef *const motor_buses[kAxisNum] = {
+      config::kYawMotorCanBus == 1u ? &hcan1 : &hcan2,
+      config::kPitchMotorCanBus == 1u ? &hcan1 : &hcan2};
 
-  /* 1. 云台两轴 DM 电机：encode 一帧（使能/MIT 纯力矩/模式切换）后经 CAN1 发出 */
+  /* 1. 云台两轴 DM 电机：encode 一帧（使能/MIT 纯力矩/模式切换）后按轴所属 CAN 发出 */
   for (int i = 0; i < kAxisNum; ++i) {
     hello_world::motor::Motor *motor = motors[i];
     if (motor == nullptr) {
@@ -114,19 +124,29 @@ void CommTask(void)
     }
     if (motor->encode(tx_data)) {
       const auto *dm = static_cast<hello_world::motor::DaMiao *>(motor);
-      CAN_Send_Msg(&hcan1, tx_data, dm->tx_id(),
+      CAN_Send_Msg(motor_buses[i], tx_data, dm->tx_id(),
                    static_cast<uint8_t>(kCanFrameLen));
-      g_dbg_can1_tx_cnt += 1u;
+      if (i == 0) {
+        g_dbg_can1_tx_cnt += 1u;
+      } else {
+        g_dbg_can2_tx_cnt += 1u;
+      }
     }
   }
 
-  /* 2. 双板通讯：Robot 已填好 G2C 数据，encode 后经 CAN2 发出（契约 §3.2 / §8） */
+  /* 2. 双板通讯：Robot 已填好 G2C 数据，encode 后经两板相连的 CAN1 发出
+   *    （契约 §3.2 / §8；2026-11-08 实物拓扑核对）。
+   *    CAN1 与 yaw 电机共用总线，按 config::kInterboardPeriodMs 降频发送。 */
   robot::GimbalChassisComm *const comm = GetGimbalChassisComm();
   if (comm != nullptr) {
-    comm->encode(tx_data);
-    CAN_Send_Msg(&hcan2, tx_data, comm->tx_id(),
-                 static_cast<uint8_t>(kCanFrameLen));
-    g_dbg_can2_tx_cnt += 1u;
+    static uint32_t s_g2c_divider = 0;
+    if (s_g2c_divider == 0u) {
+      comm->encode(tx_data);
+      CAN_Send_Msg(&hcan1, tx_data, comm->tx_id(),
+                   static_cast<uint8_t>(kCanFrameLen));
+      g_dbg_g2c_tx_cnt += 1u;
+    }
+    s_g2c_divider = (s_g2c_divider + 1u) % config::kInterboardPeriodMs;
   }
 
   /* 3. 电机状态镜像（只读，供 Ozone 检查 CAN 反馈 / 使能 / 温度） */

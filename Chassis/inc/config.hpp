@@ -50,9 +50,20 @@ inline constexpr uint32_t kResurrectionHoldMs = 200;   ///< ms，Dead→Working 
 // 双板帧 CAN ID（契约 §4.1：两板必须完全一致，改 ID = 改契约）
 inline constexpr uint32_t kCanIdC2G = 0x210u;  ///< 底盘 → 云台
 inline constexpr uint32_t kCanIdG2C = 0x211u;  ///< 云台 → 底盘
+// 双板通讯总线（2026-11-08 实测：两板 CAN1 物理相连；原契约 §4.2 的 CAN2 假设作废）
+inline constexpr uint8_t kCanBusInterboard = 1u;  ///< 1=CAN1 2=CAN2（两板必须一致）
+/* 双板帧发送周期（ms）。两板 CAN1 连成一条总线，已挂 4×M3508 反馈(1 kHz)+0x200
+ * (1 kHz)+云台 yaw 帧，约 7 帧/ms（~80% 负载）。若双板帧也按 1 ms 发，总数 9 帧/ms
+ * 会超过 1 Mbps 容量；故降为 10 ms（100 Hz，状态机/跟随延迟可接受）。
+ * TODO(硬件)：若把 yaw 电机改接到云台板 CAN2（与 pitch 同总线），可改回 1。
+ * 两板必须一致（契约 §5.2 通用段）。 */
+inline constexpr uint32_t kInterboardPeriodMs = 10;
 
 /* ============================ 底盘板专用 ============================ */
-/* ---- CAN 总线分配（契约 §4.2：CAN1=电机，CAN2=双板帧）---- */
+/* ---- CAN 总线分配（2026-11-08 实物通讯拓扑核对）----
+ *  - 两板 CAN1 相连：既走本板电机，也走双板通讯帧（C2G/G2C）；
+ *  - 底盘板 CAN2：暂未使用（预留）。 */
+inline constexpr uint8_t kCanBusChassisMotor = 1u;  ///< 底盘 4×M3508 所在 CAN
 inline constexpr uint32_t kCanIdMotorTx = 0x200u;       ///< M3508 控制帧（含电调 1~4）
 inline constexpr uint32_t kCanIdMotorFdbBase = 0x201u;  ///< 反馈帧 = base + 电调 ID
 

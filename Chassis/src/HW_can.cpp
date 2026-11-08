@@ -12,12 +12,13 @@
  *                                                错误回调快照 ErrorCode/ESR/TSR（Ozone 可看）
  *  V1.3.0      2026-11-07      Agent B         1. WP-10：FIFO1 按 StdId 路由 G2C 双板
  *                                                帧（0x211）到 GimbalChassisComm::decode
+ *  V1.4.0      2026-11-08      Lead            1. 按实物通讯拓扑调整：双板帧 G2C 改由
+ *                                                CAN1 FIFO0 分发（两板 CAN1 相连）
  *******************************************************************************
  * @attention :
- *  - HAL_CAN_RxFifo0MsgPendingCallback（CAN1）按 StdId 与各电机 GetRxId 匹配后调用
- *    decode（0x201~0x204）；其它 ID 丢弃。
- *  - HAL_CAN_RxFifo1MsgPendingCallback（CAN2）按 StdId 匹配 G2C（0x211）后调用
- *    GimbalChassisComm::decode；未识别 ID 丢弃。
+ *  - 2026-11-08 实物拓扑：两板 CAN1 物理相连，本板 CAN1 上同时有 4×M3508 反馈
+ *    （0x201~0x204）与 G2C 双板帧（0x211），FIFO0 回调按 StdId 路由。
+ *  - CAN2 本板暂未使用（保留 FIFO1 处理，兼容旧接线/后续扩展）。
  *  - 中断里只做 8 字节解码（memcpy + 整型/浮点运算），不得调用 HAL_Delay/打印。
  *******************************************************************************
  *  Copyright (c) 2024 Hello World Team, Zhejiang University.
@@ -121,45 +122,61 @@ void CAN_Send_Msg(CAN_HandleTypeDef *hcan, uint8_t *msg, uint32_t id,
 }
 
 /**
- * @brief   CAN1 FIFO0 接收中断回调（轮电机反馈分发）
+ * @brief   CAN1 FIFO0 接收中断回调（轮电机反馈 + G2C 双板帧分发）
  * @param   hcan: CAN 句柄
  * @retval  None
- * @note    按 StdId 匹配 4 个轮电机的接收 ID（0x201~0x204）后调用 decode
+ * @note    2026-11-08 实物拓扑：两板 CAN1 相连。按 StdId 路由：
+ *          - 0x211（G2C）：云台板状态/关节角/IMU → GimbalChassisComm::decode；
+ *          - 0x201~0x204：4 个轮电机反馈 → M3508::decode；
+ *          - 其它 ID：计数后丢弃。
  */
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
   if (hcan == &hcan1) {
     if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rx_header1,
                              can1_rx_data) == HAL_OK) {
-      /* 按 StdId 路由：0x201~0x204 为 4 个轮电机的反馈帧（0x200 + 电调 ID，
-       * 契约 §4.2）。用 M3508::GetRxId(id) 匹配，不硬编码反馈 ID。 */
-      for (int i = 0; i < kWheelNum; ++i) {
-        hello_world::motor::Motor *motor = GetMotorWheel(i);
-        if (motor != nullptr &&
-            rx_header1.StdId ==
-                hello_world::motor::M3508::GetRxId(motor->id())) {
-          (void)motor->decode(can1_rx_data);
-          g_can_wheel_rx_cnt[i] += 1u;
-          break;
-        }
-        if (i == kWheelNum - 1) {
-          /* 0x201~0x204 之外的 CAN1 帧（如电调错误帧/其它设备） */
-          g_can_wheel_unknown_cnt += 1u;
+      bool matched = false;
+
+      /* 1) 双板帧 G2C（0x211）：两板 CAN1 相连（2026-11-08 实测） */
+      if (rx_header1.StdId == config::kCanIdG2C) {
+        robot::GimbalChassisComm *comm = GetGimbalChassisComm();
+        if (comm != nullptr) {
+          comm->decode(can1_rx_data);
+          g_can_g2c_rx_cnt += 1u;
+          matched = true;
         }
       }
-      /* 其它 ID（如双板通讯帧 0x210/0x211，属 WP-10）当前直接丢弃。 */
+
+      /* 2) 轮电机反馈 0x201~0x204（用 M3508::GetRxId 匹配，不硬编码） */
+      if (!matched) {
+        for (int i = 0; i < kWheelNum; ++i) {
+          hello_world::motor::Motor *motor = GetMotorWheel(i);
+          if (motor != nullptr &&
+              rx_header1.StdId ==
+                  hello_world::motor::M3508::GetRxId(motor->id())) {
+            (void)motor->decode(can1_rx_data);
+            g_can_wheel_rx_cnt[i] += 1u;
+            matched = true;
+            break;
+          }
+        }
+      }
+
+      if (!matched) {
+        /* 其它 ID（电调错误帧/其它设备） */
+        g_can_wheel_unknown_cnt += 1u;
+      }
     }
   }
   HAL_CAN_ActivateNotification(hcan, CAN_IT_RX_FIFO0_MSG_PENDING);
 }
 
 /**
- * @brief   CAN2 FIFO1 接收中断回调（双板通讯帧分发）
+ * @brief   CAN2 FIFO1 接收中断回调（预留；本板 CAN2 暂未使用）
  * @param   hcan: CAN 句柄
  * @retval  None
- * @note    按 StdId 路由：G2C（0x211）→ GimbalChassisComm::decode，其中携带云台
- *          yaw 关节角（δ 主来源）、pitch 关节角、云台 IMU yaw 与云台板状态。
- *          其它 ID（含本板误回环的 C2G 0x210）直接丢弃。
+ * @note    2026-11-08 实物拓扑：双板帧走 CAN1，本板 CAN2 上没有设备。保留 FIFO1
+ *          处理以兼容旧接线/后续扩展；收到 G2C 时仍解码（冗余无害）。
  */
 void HAL_CAN_RxFifo1MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {

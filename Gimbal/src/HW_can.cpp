@@ -6,9 +6,13 @@
  *  Version     Date            Author          Note
  *  V1.0.0      2026-09-18      Hello World     1. 考核骨架：filter/发送 + 空回调
  *  V1.1.0      2026-11-07      Agent C         1. 接收分发落地；2. 修复 CAN2SB 缺陷
+ *  V1.1.1      2026-11-08      Lead            1. 按实物通讯拓扑调整：双板帧改走
+ *                                                CAN1（yaw 同总线），pitch 反馈改由
+ *                                                CAN2 FIFO1 分发（发射机构同总线）
  *******************************************************************************
  * @attention :
- *  1. CAN1（FIFO0）：达妙电机反馈帧；CAN2（FIFO1）：底盘板 C2G 帧（0x210）。
+ *  1. 2026-11-08 实物拓扑：CAN1 = yaw DM 电机 + 双板帧（C2G 0x210 / G2C 0x211，
+ *     两板 CAN1 物理相连）；CAN2 = pitch DM 电机（0x11）+ 发射机构。
  *  2. 每收一帧后必须重新 HAL_CAN_ActivateNotification，否则中断只来一次。
  *  3. 回调内不做阻塞/死等，decode 均为纯内存解析（契约 §1.3 / §10）。
  *******************************************************************************
@@ -29,7 +33,7 @@
 /* Private constants ---------------------------------------------------------*/
 namespace
 {
-constexpr int kAxisNum = 2;  ///< 云台轴数：yaw / pitch
+/* 2026-11-08：轴不再按 FIFO 统一遍历（yaw=CAN1、pitch=CAN2），暂无常量 */
 }  // namespace
 
 /* Exported variables --------------------------------------------------------*/
@@ -109,9 +113,9 @@ void CAN_Send_Msg(CAN_HandleTypeDef *hcan, uint8_t *msg, uint32_t id,
 /* Exported callback definitions (C linkage) --------------------------------*/
 
 /**
- * @brief   CAN1 FIFO0 接收中断回调：分发达妙电机反馈帧
- * @note    一帧反馈只对应一个电机（0x11 = yaw、0x12 = pitch），命中后即 break；
- *          记录接收时刻供 Robot 做反馈超时判断。
+ * @brief   CAN1 FIFO0 接收中断回调：yaw 电机反馈 + 双板 C2G 帧分发
+ * @note    2026-11-08 实物拓扑：两板 CAN1 相连，云台板 CAN1 上同时有 yaw DM
+ *          电机（反馈 0x12）与底盘板 C2G 帧（0x210），按 StdId 路由。
  */
 extern "C" void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
@@ -119,44 +123,43 @@ extern "C" void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
     if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rx_header1, can1_rx_data) ==
         HAL_OK) {
       const uint32_t now = hello_world::tick::GetTickMs();
-      hello_world::motor::Motor *const motors[kAxisNum] = {GetMotorYaw(),
-                                                           GetMotorPitch()};
-      volatile uint32_t *const rx_ticks[kAxisNum] = {
-          &g_can_yaw_motor_last_rx_tick, &g_can_pitch_motor_last_rx_tick};
-      volatile uint32_t *const rx_cnts[kAxisNum] = {&g_can_yaw_fdb_cnt,
-                                                    &g_can_pitch_fdb_cnt};
-
-      for (int i = 0; i < kAxisNum; ++i) {
-        hello_world::motor::Motor *motor = motors[i];
-        if (motor == nullptr) {
-          continue;
-        }
-        if (rx_header1.StdId ==
-            hello_world::motor::DaMiao::GetRxId(motor->id())) {
-          (void)motor->decode(can1_rx_data);  // 纯内存解析，不阻塞
-          *rx_ticks[i] = now;
-          *rx_cnts[i] = *rx_cnts[i] + 1;  // 赋值而非 ++：避免 -Wvolatile
-          break;
+      robot::GimbalChassisComm *const comm = GetGimbalChassisComm();
+      if (comm != nullptr && rx_header1.StdId == comm->rx_id()) {
+        /* 底盘板 C2G（0x210）：刷新 last_rx_tick_ 与 chassis_data_ */
+        comm->decode(can1_rx_data);
+        g_can_c2g_last_rx_tick = now;
+        g_can_c2g_rx_cnt = g_can_c2g_rx_cnt + 1;  // 赋值而非 ++：避免 -Wvolatile
+      } else {
+        hello_world::motor::Motor *const yaw = GetMotorYaw();
+        if (yaw != nullptr &&
+            rx_header1.StdId == hello_world::motor::DaMiao::GetRxId(yaw->id())) {
+          (void)yaw->decode(can1_rx_data);  // 纯内存解析，不阻塞
+          g_can_yaw_motor_last_rx_tick = now;
+          g_can_yaw_fdb_cnt = g_can_yaw_fdb_cnt + 1;  // 避免 -Wvolatile
         }
       }
+      /* 其它 ID（电调错误帧等）丢弃 */
     }
   }
   HAL_CAN_ActivateNotification(hcan, CAN_IT_RX_FIFO0_MSG_PENDING);
 }
 
 /**
- * @brief   CAN2 FIFO1 接收中断回调：解码底盘板 C2G 帧（0x210）
+ * @brief   CAN2 FIFO1 接收中断回调：pitch 电机反馈分发
+ * @note    2026-11-08 实物拓扑：pitch DM 电机（反馈 0x11）接在云台板 CAN2，
+ *          同总线还有发射机构（拨弹/摩擦轮），本工程只解码 pitch，其余丢弃。
  */
 extern "C" void HAL_CAN_RxFifo1MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
   if (hcan == &hcan2) {
     if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO1, &rx_header2, can2_rx_data) ==
         HAL_OK) {
-      robot::GimbalChassisComm *const comm = GetGimbalChassisComm();
-      if (comm != nullptr && rx_header2.StdId == comm->rx_id()) {
-        comm->decode(can2_rx_data);  // 刷新 last_rx_tick_ 与 chassis_data_
-        g_can_c2g_last_rx_tick = hello_world::tick::GetTickMs();
-        g_can_c2g_rx_cnt = g_can_c2g_rx_cnt + 1;  // 赋值而非 ++：避免 -Wvolatile
+      hello_world::motor::Motor *const pitch = GetMotorPitch();
+      if (pitch != nullptr &&
+          rx_header2.StdId == hello_world::motor::DaMiao::GetRxId(pitch->id())) {
+        (void)pitch->decode(can2_rx_data);  // 纯内存解析，不阻塞
+        g_can_pitch_motor_last_rx_tick = hello_world::tick::GetTickMs();
+        g_can_pitch_fdb_cnt = g_can_pitch_fdb_cnt + 1;  // 避免 -Wvolatile
       }
     }
   }
