@@ -41,6 +41,11 @@ constexpr uint32_t kCanErrIrqMask =
     CAN_IT_LAST_ERROR_CODE;  ///< 需要开中断的 CAN 错误类型
 }  // namespace
 
+/* 固件标识（2026-11-08 云台 IMU 检测版）：Ozone 里确认烧的是本次 ELF。
+ * 必须 used+retain，否则未被引用的全局会被 --gc-sections 删除，Ozone 会把它
+ * 解析到无效地址（读到 0x20020000 = 初始栈顶），看起来像"烧错固件"。 */
+__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261112u;
+
 /* Exported function definitions ---------------------------------------------*/
 
 void CommTaskInit(void)
@@ -72,6 +77,8 @@ void CommTaskInit(void)
 
   /* 4. IWDG 已在 main.c 的 MX_IWDG_Init() 中启动，阻塞初始化结束后由
    *    MainTaskInit 统一喂一次；本任务负责运行期周期喂狗。 */
+  /* 5. 调试镜像：写入固件标识，便于 Ozone 确认已烧录本次云台 ELF。 */
+  g_dbg_fw_tag = 0x20261112u;
 }
 
 void CommTask(void)
