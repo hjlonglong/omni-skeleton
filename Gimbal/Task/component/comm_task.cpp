@@ -48,7 +48,7 @@ constexpr uint32_t kCanErrIrqMask =
 /* 固件标识（2026-11-08 云台 CAN 拓扑适配版）：Ozone 里确认烧的是本次 ELF。
  * 必须 used+retain，否则未被引用的全局会被 --gc-sections 删除，Ozone 会把它
  * 解析到无效地址（读到 0x20020000 = 初始栈顶），看起来像"烧错固件"。 */
-__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261122u;
+__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261124u;
 
 /* DM 电机状态镜像（Ozone Live Watch；每 1 ms 刷新，只读不影响控制）----------
  * 数组索引：0 = yaw，1 = pitch（与 GetMotorYaw()/GetMotorPitch() 顺序一致）。
@@ -103,7 +103,7 @@ void CommTaskInit(void)
   /* 4. IWDG 已在 main.c 的 MX_IWDG_Init() 中启动，阻塞初始化结束后由
    *    MainTaskInit 统一喂一次；本任务负责运行期周期喂狗。 */
   /* 5. 调试镜像：写入固件标识，便于 Ozone 确认已烧录本次云台 ELF。 */
-  g_dbg_fw_tag = 0x20261122u;
+  g_dbg_fw_tag = 0x20261124u;
 }
 
 void CommTask(void)
@@ -136,7 +136,7 @@ void CommTask(void)
 
   /* 2. 双板通讯：Robot 已填好 G2C 数据，encode 后经两板相连的 CAN1 发出
    *    （契约 §3.2 / §8；2026-11-08 实物拓扑核对）。
-   *    CAN1 与 yaw 电机共用总线，按 config::kInterboardPeriodMs 降频发送。 */
+   *    CAN1 与 yaw 电机共用总线，按 config::kInterboardPeriodMs（默认 1 ms）发送。 */
   robot::GimbalChassisComm *const comm = GetGimbalChassisComm();
   if (comm != nullptr) {
     static uint32_t s_g2c_divider = 0;

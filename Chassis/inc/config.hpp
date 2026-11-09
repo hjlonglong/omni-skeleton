@@ -57,13 +57,13 @@ inline constexpr uint8_t kCanBusInterboard = 1u;  ///< 1=CAN1 2=CAN2（两板必
  * 会超过 1 Mbps 容量；故降为 10 ms（100 Hz，状态机/跟随延迟可接受）。
  * TODO(硬件)：若把 yaw 电机改接到云台板 CAN2（与 pitch 同总线），可改回 1。
  * 两板必须一致（契约 §5.2 通用段）。 */
-inline constexpr uint32_t kInterboardPeriodMs = 10;
+inline constexpr uint32_t kInterboardPeriodMs = 1;  ///< 双板帧周期：CAN1 仅双板帧时 1 ms（2026-11-09 拓扑修正后负载低）；若同总线还有电机等节点可调 10
 
 /* ============================ 底盘板专用 ============================ */
 /* ---- CAN 总线分配（2026-11-08 实物通讯拓扑核对）----
  *  - 两板 CAN1 相连：既走本板电机，也走双板通讯帧（C2G/G2C）；
  *  - 底盘板 CAN2：暂未使用（预留）。 */
-inline constexpr uint8_t kCanBusChassisMotor = 1u;  ///< 底盘 4×M3508 所在 CAN
+inline constexpr uint8_t kCanBusChassisMotor = 2u;  ///< 底盘 4×M3508 所在 CAN（2026-11-09 实测：底盘板 CAN2）
 inline constexpr uint32_t kCanIdMotorTx = 0x200u;       ///< M3508 控制帧（含电调 1~4）
 inline constexpr uint32_t kCanIdMotorFdbBase = 0x201u;  ///< 反馈帧 = base + 电调 ID
 

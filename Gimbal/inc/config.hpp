@@ -45,7 +45,7 @@ inline constexpr uint8_t kCanBusInterboard = 1u;  ///< 1=CAN1 2=CAN2（两板必
  * 会超过 1 Mbps 容量；故降为 10 ms（100 Hz，状态机/跟随延迟可接受）。
  * TODO(硬件)：若把 yaw 电机改接到云台板 CAN2（与 pitch 同总线），可改回 1。
  * 两板必须一致（契约 §5.2 通用段）。 */
-inline constexpr uint32_t kInterboardPeriodMs = 10;
+inline constexpr uint32_t kInterboardPeriodMs = 1;  ///< 双板帧周期：CAN1 仅双板帧+yaw 时 1 ms（2026-11-09 拓扑修正后负载低）；若同总线还有电机等节点可调 10
 
 /* ============================ 云台板专用 ============================ */
 /* ---- CAN 总线分配（2026-11-08 实物通讯拓扑核对）----

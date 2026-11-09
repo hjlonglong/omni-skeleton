@@ -73,12 +73,12 @@ volatile float g_dbg_wheel_curr[4] = {0.0f};
 volatile float g_dbg_wheel_input[4] = {0.0f};
 volatile float g_dbg_wheel_angle[4] = {0.0f};
 volatile uint8_t g_dbg_wheel_temp[4] = {0};
-volatile uint32_t g_dbg_can1_tx_cnt = 0;  ///< 0x200 控制帧发送次数
-/* 固件标识（2026-11-08 双板帧改走 CAN1 版）：Ozone 里确认已烧录本次固件。
+volatile uint32_t g_dbg_wheel_tx_cnt = 0;  ///< 0x200 控制帧（CAN2）发送次数
+/* 固件标识（2026-11-09 底盘轮电机改 CAN2 版）：Ozone 里确认已烧录本次固件。
  * 注意：必须 used+retain，否则未引用的全局会被 --gc-sections 删掉，Ozone 会把它
  * 解析到地址 0（读到 0x20020000 = 初始栈顶），从而"看起来烧错了固件"。
  * V1.2.2 起每次改接收逻辑都换 tag，用来区分板内固件与 ELF 是否一致。 */
-__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261121u;
+__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261123u;
 volatile uint8_t g_dbg_dbus_last_evt = 0;  ///< 最近一次 UART 事件类型 0=HT 1=TC 2=IDLE
 volatile uint16_t g_dbg_dbus_last_size = 0; ///< 最近一次 UART 事件长度（正常 TC=18）
 /* 接收事件统计：判断帧对齐是否收敛；稳态下 TC 约 +70/秒（帧周期 ~14 ms），
@@ -135,7 +135,7 @@ void CommTaskInit(void) {
    *  - g_dbg_fw_tag 写回一次，保证它被引用而不会被 --gc-sections 删除；
    *  - g_dbg_dbus_raw 预填 0xEE：若 Ozone 里看到 0xEE 说明接收回调没有写这块内存
    *    （符号地址不匹配/回调没跑），若看到真实字节说明链路正常。 */
-  g_dbg_fw_tag = 0x20261121u;
+  g_dbg_fw_tag = 0x20261123u;
   for (uint16_t i = 0; i < kRcRxLen; ++i) {
     g_dbg_dbus_raw[i] = 0xEEu;
   }
@@ -145,7 +145,8 @@ void CommTaskInit(void) {
   CanFilter_Init(&hcan2);
 
   /* 3. 启动 CAN 外设并打开接收中断。HAL_CAN_Init 后外设仍处于初始化模式，
-   *    不调用 HAL_CAN_Start 则永远无法收发。 */
+   *    不调用 HAL_CAN_Start 则永远无法收发。
+   *    2026-11-09 实物拓扑：CAN1=FIFO0 只走 G2C 双板帧；CAN2=FIFO1 走 4×M3508 反馈。 */
   if (HAL_CAN_Start(&hcan1) != HAL_OK) {
     Error_Handler();
   }
@@ -158,8 +159,8 @@ void CommTaskInit(void) {
     Error_Handler();
   }
 
-  /* CAN2 本板预留（2026-11-08 实物拓扑：双板帧已改走 CAN1，G2C 由 FIFO0 回调解码）；
-   * 仍然启动，保持旧接线/后续扩展可用。 */
+  /* CAN2 = 4×M3508（2026-11-09 实物拓扑：轮电机接底盘板 CAN2，FIFO1 回调解码）；
+   * CAN1 只走双板帧。 */
   if (HAL_CAN_Start(&hcan2) != HAL_OK) {
     Error_Handler();
   }
@@ -193,14 +194,13 @@ void CommTask(void) {
     }
     (void)motor->encode(tx_data);
   }
-  CAN_Send_Msg(&hcan1, tx_data, config::kCanIdMotorTx, 8);
-  g_dbg_can1_tx_cnt += 1;
+  CAN_Send_Msg(&hcan2, tx_data, config::kCanIdMotorTx, 8);
+  g_dbg_wheel_tx_cnt += 1;
 
   /* 2. 双板通讯帧 C2G（0x210）：语义字段（状态/急停/模式/IMU yaw/云台目标角）由
-   *    Robot::update() 每 1 ms 刷新，这里只 encode + 经 CAN1 发出（2026-11-08 实物
-   *    拓扑：两板 CAN1 物理相连；原契约 §4.2 的 CAN2 假设作废）。
-   *    CAN1 与 4×M3508 共用总线，双板帧按 config::kInterboardPeriodMs 降频发送，
-   *    避免总负载超过 1 Mbps（见 config.hpp 注释）。 */
+   *    Robot::update() 每 1 ms 刷新，这里只 encode + 经 CAN1 发出（2026-11-09 实物
+   *    拓扑：两板 CAN1 相连，且 CAN1 不再挂电机，按 config::kInterboardPeriodMs
+   *    （默认 1 ms）发送）。 */
   robot::GimbalChassisComm *comm = GetGimbalChassisComm();
   if (comm != nullptr) {
     static uint32_t s_c2g_divider = 0;
