@@ -74,11 +74,20 @@ volatile float g_dbg_wheel_input[4] = {0.0f};
 volatile float g_dbg_wheel_angle[4] = {0.0f};
 volatile uint8_t g_dbg_wheel_temp[4] = {0};
 volatile uint32_t g_dbg_wheel_tx_cnt = 0;  ///< 0x200 控制帧（CAN2）发送次数
-/* 固件标识（2026-11-09 底盘轮电机改 CAN2 版）：Ozone 里确认已烧录本次固件。
+/* ---- 运行期参数镜像（2026-11-11，调参用）-----------------------------------
+ * Ozone 里核对"当前固件实际编译进去"的 PID/限幅参数：
+ *  - 改 `Chassis/inc/config.hpp` 后必须重编 + 重烧，这些值才会变；
+ *  - 若 Ozone 显示的值与刚改的 config.hpp 不一致 => 固件没刷进去/看的是旧 ELF。 */
+volatile float g_dbg_pid_wheel_kp = config::kPidWheelKp;
+volatile float g_dbg_pid_wheel_ki = config::kPidWheelKi;
+volatile float g_dbg_pid_wheel_kd = config::kPidWheelKd;
+volatile float g_dbg_pid_wheel_integ_max = config::kPidWheelIntegMax;
+volatile float g_dbg_max_wheel_current = config::kMaxWheelCurrent;
+/* 固件标识（2026-11-11 调参镜像版）：Ozone 里确认已烧录本次固件。
  * 注意：必须 used+retain，否则未引用的全局会被 --gc-sections 删掉，Ozone 会把它
  * 解析到地址 0（读到 0x20020000 = 初始栈顶），从而"看起来烧错了固件"。
  * V1.2.2 起每次改接收逻辑都换 tag，用来区分板内固件与 ELF 是否一致。 */
-__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261123u;
+__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261125u;
 volatile uint8_t g_dbg_dbus_last_evt = 0;  ///< 最近一次 UART 事件类型 0=HT 1=TC 2=IDLE
 volatile uint16_t g_dbg_dbus_last_size = 0; ///< 最近一次 UART 事件长度（正常 TC=18）
 /* 接收事件统计：判断帧对齐是否收敛；稳态下 TC 约 +70/秒（帧周期 ~14 ms），
@@ -135,7 +144,7 @@ void CommTaskInit(void) {
    *  - g_dbg_fw_tag 写回一次，保证它被引用而不会被 --gc-sections 删除；
    *  - g_dbg_dbus_raw 预填 0xEE：若 Ozone 里看到 0xEE 说明接收回调没有写这块内存
    *    （符号地址不匹配/回调没跑），若看到真实字节说明链路正常。 */
-  g_dbg_fw_tag = 0x20261123u;
+  g_dbg_fw_tag = 0x20261125u;
   for (uint16_t i = 0; i < kRcRxLen; ++i) {
     g_dbg_dbus_raw[i] = 0xEEu;
   }
