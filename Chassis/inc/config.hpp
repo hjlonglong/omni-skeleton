@@ -2,7 +2,7 @@
  * @Author: hjlonglong 356794146@qq.com
  * @Date: 2026-10-24 19:05:02
  * @LastEditors: hjlonglong 356794146@qq.com
- * @LastEditTime: 2026-11-11 19:48:32
+ * @LastEditTime: 2026-11-11 20:22:34
  * @FilePath: \Chassis\inc\config.hpp
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
@@ -96,8 +96,9 @@ inline constexpr float kWheelMountAngleRad[4] = {3.0f * kPi / 4.0f, 5.0f * kPi /
 /* 每轮逆解输出符号（±1，TODO(硬件): 单轮正电流观察车体等效方向后标定；与 kWheelDir 分工：
  * kWheelDir 校正电机电气正方向，kWheelSign 校正轮系安装方向，二者不要同时翻同一轮） */
 inline constexpr int8_t kWheelSign[4] = {1, 1, 1, 1};
-/* δ 符号：δ = wrapPi(kDeltaSign * G2C.yaw_joint)。契约 §1.2 的 δ 变换公式按契约原文实现，
- * 实车转云台验证若方向相反，只改此符号（TODO(硬件)，契约 §1.2「符号以实车调试为准」）。 */
+/* δ 符号：δ = wrapPi(kDeltaSign * G2C.yaw_joint)，定义为【云台世界朝向 − 车头世界朝向】。
+ * 2026-11-12 实车修正：IK 旋转变换已改为标准 R(δ)（车体系 = R(δ)·云台系），不再按
+ * 契约旧公式（R(−δ)）实现；若实车仍反向，只改本符号（TODO(硬件)）。 */
 inline constexpr int8_t kDeltaSign = 1;
 
 /* ---- 麦轮兼容常量（骨架遗留，供对照/回退；v1.1 O 型轮逆解不再使用）---- */
@@ -116,14 +117,14 @@ inline constexpr float kFollowWMax = 3.0f;      ///< rad/s，跟随环输出限�
 inline constexpr float kFollowDeadBandRad = 0.035f;  ///< rad，跟随死区（≈2°）
 
 /* ---- 轮速环 PID 初值（位置式，输入 rad/s 误差，输出电流 A）---- */
-inline constexpr float kPidWheelKp = 0.3f;        ///< TODO(调参)
-inline constexpr float kPidWheelKi = 0.0f;        ///< TODO(调参)
+inline constexpr float kPidWheelKp = 1.2f;        ///< TODO(调参)
+inline constexpr float kPidWheelKi = 0.8f;        ///< TODO(调参)
 inline constexpr float kPidWheelKd = 0.0f;        ///< TODO(调参)
 inline constexpr float kPidWheelIntegMax = kMaxWheelCurrent;  ///< 积分限幅
 
 /* ---- 跟随环 PID 初值（输入 δ 误差 rad，输出自转 w rad/s）---- */
-inline constexpr float kPidFollowKp = 0.3f;       ///< TODO(调参)
-inline constexpr float kPidFollowKi = 0.0f;       ///< TODO(调参)
+inline constexpr float kPidFollowKp = 1.2f;       ///< TODO(调参)
+inline constexpr float kPidFollowKi = 0.8f;       ///< TODO(调参)
 inline constexpr float kPidFollowKd = 0.0f;       ///< TODO(调参)
 inline constexpr float kPidFollowIntegMax = kFollowWMax;
 inline constexpr float kPidFollowDlpfAlpha = 0.2f; ///< 跟随环微分一阶低通强度 [0,1]（TODO(调参)）

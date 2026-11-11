@@ -9,10 +9,10 @@
  *******************************************************************************
  * @attention :
  *  - 纯头文件、无 HAL/外设依赖，可在主机上直接单元测试（见交付自测）。
- *  - 输入速度定义在【云台系】（契约 §1.2），先按契约公式旋到车体系，再逐轮投影：
- *      vx_chassis =  vx_gimbal·cosδ + vy_gimbal·sinδ
- *      vy_chassis = -vx_gimbal·sinδ + vy_gimbal·cosδ
- *    （δ 由调用方 wrapPi 并按 config::kDeltaSign 取号后传入）
+ *  - 输入速度定义在【云台系】（契约 §1.2），先旋到车体系，再逐轮投影：
+ *      vx_chassis =  vx_gimbal·cosδ − vy_gimbal·sinδ
+ *      vy_chassis =  vx_gimbal·sinδ + vy_gimbal·cosδ      （标准 R(δ)，2026-11-12 实车修正）
+ *    （δ = 云台世界朝向 − 车头世界朝向，由调用方 wrapPi 并按 kDeltaSign 取号后传入）
  *  - 全向轮逆解通用公式（轮 i 轮心 r_i、驱动方向角 α_i、半径 R）：
  *      ω_i = sign_i · [ vx·cosα_i + vy·sinα_i + w·(x_i·sinα_i − y_i·cosα_i) ] / R
  *    其中 w×(x_i,y_i) = w·(−y_i, x_i)，与驱动方向点乘即旋转项。
@@ -51,20 +51,23 @@ class ChassisIkSolver
   explicit ChassisIkSolver(float wheel_radius) : wheel_radius_(wheel_radius) {}
 
   /**
-   * @brief  把云台系平移速度旋到车体系（契约 §1.2 硬性公式，全工程唯一实现）
+   * @brief  把云台系平移速度旋到车体系（δ = 云台世界朝向 − 车头世界朝向）
    * @param  v_gimbal    云台系速度 (vx, vy, w)，m/s 与 rad/s
    * @param  delta       δ（已 wrapPi 到 [-π, π)），rad
    * @param  vx_chassis  输出：车体系 vx，m/s
    * @param  vy_chassis  输出：车体系 vy，m/s
    * @note   w 为标量，不参与旋转。
+   * @note   2026-11-12 修正：原实现用 R(−δ)，与“δ=云台世界朝向−车头世界朝向”定义相反
+   *         （实车：云台朝左、上推左摇杆，车向前/右走）。现统一为标准 R(δ)，即
+   *         车体系 = R(δ)·云台系：云台朝左（δ=+90°）时“云台前”在车体系为 +y（左）。
    */
   static void RotateToChassis(const robot::ChassisVelocity &v_gimbal, float delta,
                               float *vx_chassis, float *vy_chassis)
   {
     const float c = std::cos(delta);
     const float s = std::sin(delta);
-    *vx_chassis = v_gimbal.vx * c + v_gimbal.vy * s;
-    *vy_chassis = -v_gimbal.vx * s + v_gimbal.vy * c;
+    *vx_chassis = v_gimbal.vx * c - v_gimbal.vy * s;
+    *vy_chassis = v_gimbal.vx * s + v_gimbal.vy * c;
   }
 
   /**
