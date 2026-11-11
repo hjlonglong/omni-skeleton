@@ -234,6 +234,8 @@ struct LifeStateMachine {
  * @retval 云台系 (vx, vy, w)；所有分量已限幅（kMaxVxVy / kMaxW / kSpinWMax / kFollowWMax）
  * @note   vx：左摇杆上推为正（前进）；vy：左摇杆左推为正（左移）；
  *         分离/小陀螺的 w 来自拨轮，跟随的 w 来自跟随环。
+ *         小陀螺 kSpin（2026-11-11 用户确认）：左摇杆平移 + 拨轮 → 自转 w
+ *         （vx/vy 仍按 δ 旋转到车体系），与分离模式的差别只有 kSpinWMax 限幅。
  */
 inline ChassisVelocity GenerateVelocity(const hello_world::remote_control::DT7 &rc,
                                         ChassisMode mode, float follow_w)
