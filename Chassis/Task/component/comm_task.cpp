@@ -74,6 +74,12 @@ volatile float g_dbg_wheel_input[4] = {0.0f};
 volatile float g_dbg_wheel_angle[4] = {0.0f};
 volatile uint8_t g_dbg_wheel_temp[4] = {0};
 volatile uint32_t g_dbg_wheel_tx_cnt = 0;  ///< 0x200 控制帧（CAN2）发送次数
+/* CommTask 心跳：每 1 ms +1（约 +1000/秒）。Ozone 里先看这个值：
+ * 增长 => CommTask 在跑（下面的镜像必然被刷新）；不涨 => 任务链根本没跑/看错固件。 */
+volatile uint32_t g_dbg_tick_cnt = 0;
+/* Robot 链路镜像（定义在 chassis.cpp）：本函数也同步写实际轮速，
+ * 保证 TEST_MODE=1 台架（Robot::update 不运行）时 Ozone 仍能看到轮速。 */
+extern volatile float g_dbg_wheel_actual[4];
 /* ---- 运行期参数镜像（2026-11-11，调参用）-----------------------------------
  * Ozone 里核对"当前固件实际编译进去"的 PID/限幅参数：
  *  - 改 `Chassis/inc/config.hpp` 后必须重编 + 重烧，这些值才会变；
@@ -87,7 +93,7 @@ volatile float g_dbg_max_wheel_current = config::kMaxWheelCurrent;
  * 注意：必须 used+retain，否则未引用的全局会被 --gc-sections 删掉，Ozone 会把它
  * 解析到地址 0（读到 0x20020000 = 初始栈顶），从而"看起来烧错了固件"。
  * V1.2.2 起每次改接收逻辑都换 tag，用来区分板内固件与 ELF 是否一致。 */
-__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261126u;
+__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x20261127u;
 volatile uint8_t g_dbg_dbus_last_evt = 0;  ///< 最近一次 UART 事件类型 0=HT 1=TC 2=IDLE
 volatile uint16_t g_dbg_dbus_last_size = 0; ///< 最近一次 UART 事件长度（正常 TC=18）
 /* 接收事件统计：判断帧对齐是否收敛；稳态下 TC 约 +70/秒（帧周期 ~14 ms），
@@ -144,7 +150,7 @@ void CommTaskInit(void) {
    *  - g_dbg_fw_tag 写回一次，保证它被引用而不会被 --gc-sections 删除；
    *  - g_dbg_dbus_raw 预填 0xEE：若 Ozone 里看到 0xEE 说明接收回调没有写这块内存
    *    （符号地址不匹配/回调没跑），若看到真实字节说明链路正常。 */
-  g_dbg_fw_tag = 0x20261126u;
+  g_dbg_fw_tag = 0x20261127u;
   for (uint16_t i = 0; i < kRcRxLen; ++i) {
     g_dbg_dbus_raw[i] = 0xEEu;
   }
@@ -192,6 +198,8 @@ void CommTaskInit(void) {
 }
 
 void CommTask(void) {
+  g_dbg_tick_cnt += 1;
+
   /* 1. M3508 控制帧 0x200：电调 ID 1~4 共用同一帧，每个电机 encode() 只写自己的
    *    2 字节，因此必须让 4 个电机依次 encode 到同一个 8 字节缓冲区，最后只发一帧
    *    （契约 §8.1）。每周期都发（输入为 0 也发），保证电调持续收到最新指令。 */
@@ -233,6 +241,7 @@ void CommTask(void) {
       continue;
     }
     g_dbg_wheel_vel[i] = motor->vel();
+    g_dbg_wheel_actual[i] = g_dbg_wheel_vel[i];
     g_dbg_wheel_curr[i] = motor->curr();
     g_dbg_wheel_input[i] = motor->getInput();
     g_dbg_wheel_angle[i] = motor->angle();

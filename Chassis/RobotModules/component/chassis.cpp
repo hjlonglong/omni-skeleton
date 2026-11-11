@@ -32,6 +32,7 @@
 volatile float g_dbg_wheel_target[4] = {0.0f};  ///< 目标轮速 rad/s（逆解+限幅后）
 volatile float g_dbg_wheel_actual[4] = {0.0f};  ///< 实际轮速 rad/s（反馈）
 volatile float g_dbg_wheel_out[4] = {0.0f};     ///< 轮速环 PID 输出（再限幅后）A
+volatile uint32_t g_dbg_robot_update_cnt = 0;   ///< Chassis::update() 调用次数（Working 时 ~1000/秒）
 
 /* Private constants ---------------------------------------------------------*/
 namespace
@@ -86,6 +87,8 @@ void robot::Chassis::update()
   if (!inited_ || ik_solver_ == nullptr) {
     return;
   }
+
+  g_dbg_robot_update_cnt += 1;
 
   /* 1. 逆解：云台系速度 → 车体系 → 4 轮目标轮速（未限幅） */
   float solved[kWheelNum] = {0.0f, 0.0f, 0.0f, 0.0f};
