@@ -25,6 +25,14 @@
 #include "motor_base.hpp"
 #include "pid.hpp"
 
+/* ---- Ozone 调参观测镜像（全局符号；只写不读，不影响控制逻辑）-----------------
+ * 索引 0=LF 1=LB 2=RB 3=RF，每个 1 ms 周期刷新。
+ * 注意：TEST_MODE=1 台架模式下 MainTask 不跑 Robot::update，本组镜像保持 0，
+ * 单轮台架请看 ControlTask 的 g_dbg_target/g_dbg_vel/g_dbg_out。 */
+volatile float g_dbg_wheel_target[4] = {0.0f};  ///< 目标轮速 rad/s（逆解+限幅后）
+volatile float g_dbg_wheel_actual[4] = {0.0f};  ///< 实际轮速 rad/s（反馈）
+volatile float g_dbg_wheel_out[4] = {0.0f};     ///< 轮速环 PID 输出（再限幅后）A
+
 /* Private constants ---------------------------------------------------------*/
 namespace
 {
@@ -95,14 +103,17 @@ void robot::Chassis::update()
       target = -config::kMaxWheelRadS;
     }
     target_rad_s_[i] = target;
+    g_dbg_wheel_target[i] = target;
 
     /* 3. 反馈读取（CAN 反馈由 HW_can.cpp 的 FIFO0 回调 decode） */
     const float actual = wheels_[i]->vel();
     actual_rad_s_[i] = actual;
+    g_dbg_wheel_actual[i] = actual;
     if (!std::isfinite(actual)) {
       /* 反馈异常：本拍零电流并清 PID，等下一帧正常反馈再恢复 */
       wheel_pid_[i]->reset();
       (void)wheels_[i]->setInput(0.0f);
+      g_dbg_wheel_out[i] = 0.0f;
       continue;
     }
 
@@ -117,6 +128,7 @@ void robot::Chassis::update()
     } else if (out < -config::kMaxWheelCurrent) {
       out = -config::kMaxWheelCurrent;
     }
+    g_dbg_wheel_out[i] = out;
     (void)wheels_[i]->setInput(out);
   }
 }
@@ -125,6 +137,8 @@ void robot::Chassis::stop()
 {
   for (int i = 0; i < kWheelNum; ++i) {
     target_rad_s_[i] = 0.0f;
+    g_dbg_wheel_target[i] = 0.0f;
+    g_dbg_wheel_out[i] = 0.0f;
     if (wheels_[i] != nullptr) {
       (void)wheels_[i]->setInput(0.0f);
     }
