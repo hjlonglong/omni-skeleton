@@ -88,14 +88,14 @@ cmake --build --preset Debug -j 8
 > 也可不用 preset，直接 `cmake -S . -B build -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$PWD/cmake/gcc-arm-none-eabi.cmake" -DCMAKE_BUILD_TYPE=Debug`；`-DCMAKE_TOOLCHAIN_FILE` 必须为绝对路径。
 > ELF 固定输出到 `<板>/build/omni_<board>.elf`，可用 Ozone（SWD 4 MHz）加载。
 
-基线（2026-11-12，yaw 零位 + δ 旋转修正版，`TEST_MODE=0` 交付态，Debug 全量构建）：
+基线（2026-11-12，yaw 零位 + δ 旋转修正 + 拨轮死区版，`TEST_MODE=0` 交付态，Debug 全量构建）：
 
 | 板 | 编译单元 | 结果 | text | data | bss | ELF |
 | --- | --- | --- | --- | --- | --- | --- |
-| Chassis | 677 | 0 error / 0 warning | 64,828 B | 288 B | 8,504 B | 2,409,052 B |
+| Chassis | 677 | 0 error / 0 warning | 64,988 B | 288 B | 8,504 B | 2,409,432 B |
 | Gimbal | 678 | 0 error / 0 warning | 66,008 B | 120 B | 8,200 B | 2,363,432 B |
 
-固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x20261131`（539365681）、云台 `g_dbg_fw_tag = 0x20261130`（539365680）。
+固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x20261132`（539365682）、云台 `g_dbg_fw_tag = 0x20261130`（539365680）。
 
 无硬件自测：底盘主机 harness `D:\rm\task8_selftest\test_logic.exe`（76/76 PASS）；云台 `gimbal_math.hpp` 15 条 `static_assert` 随构建验证。
 

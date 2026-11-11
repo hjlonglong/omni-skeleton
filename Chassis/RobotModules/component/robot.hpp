@@ -78,6 +78,32 @@ inline float ApplyDeadZone(float x)
 }
 
 /**
+ * @brief  拨轮死区（带重标定；|x| <= config::kWheelDeadZone 输出 0）
+ * @param  x 归一化拨轮值 [-1, 1]
+ * @retval 死区内 0；死区外符号保持并线性重标定到 [-1, 1]：
+ *         sign(x) * (|x| - dz) / (1 - dz)
+ * @note   2026-11-12：实车拨轮回中附近抖动会导致分离/小陀螺模式自转抖动，
+ *         故独立设置拨轮死区（摇杆仍走 ApplyDeadZone）。重标定保证满量程仍
+ *         可打到 1.0，只是近中位灵敏度按 (1-dz) 线性压缩。
+ */
+inline float ApplyWheelDeadZone(float x)
+{
+  if (!std::isfinite(x)) {
+    return 0.0f;
+  }
+  const float dz = config::kWheelDeadZone;
+  const float ax = std::fabs(x);
+  if (ax <= dz) {
+    return 0.0f;
+  }
+  if (dz >= 1.0f) {
+    return 0.0f;
+  }
+  const float sign = (x > 0.0f) ? 1.0f : -1.0f;
+  return sign * ((ax - dz) / (1.0f - dz));
+}
+
+/**
  * @brief  摇杆是否全部回中（上电/Resurrection 期间进 Working 的前置条件，契约 §7.1）
  */
 inline bool SticksCentered(const hello_world::remote_control::DT7 &rc)
@@ -233,7 +259,7 @@ struct LifeStateMachine {
  * @param follow_w  跟随环本拍输出（kFollow 模式使用，其余模式忽略）
  * @retval 云台系 (vx, vy, w)；所有分量已限幅（kMaxVxVy / kMaxW / kSpinWMax / kFollowWMax）
  * @note   vx：左摇杆上推为正（前进）；vy：左摇杆左推为正（左移）；
- *         分离/小陀螺的 w 来自拨轮，跟随的 w 来自跟随环。
+ *         分离/小陀螺的 w 来自拨轮（经 ApplyWheelDeadZone 死区+重标定），跟随的 w 来自跟随环。
  *         小陀螺 kSpin（2026-11-11 用户确认）：左摇杆平移 + 拨轮 → 自转 w
  *         （vx/vy 仍按 δ 旋转到车体系），与分离模式的差别只有 kSpinWMax 限幅。
  */
@@ -244,7 +270,7 @@ inline ChassisVelocity GenerateVelocity(const hello_world::remote_control::DT7 &
   v.vx = ClampValue(ApplyDeadZone(rc.rc_lv()) * config::kMaxVxVy, config::kMaxVxVy);
   v.vy = ClampValue(ApplyDeadZone(rc.rc_lh()) * config::kMaxVxVy, config::kMaxVxVy);
 
-  const float wheel = ApplyDeadZone(rc.rc_wheel());
+  const float wheel = ApplyWheelDeadZone(rc.rc_wheel());
   switch (mode) {
     case ChassisMode::kFollow:
       v.w = ClampValue(follow_w, config::kFollowWMax);
