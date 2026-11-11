@@ -48,6 +48,7 @@ constexpr int kWheelNum = config::kWheelNum;
  *   g_dbg_follow_w     跟随环输出 w（rad/s）
  *   g_dbg_target_vx/vy/w  本拍下发到 Chassis 的云台系目标速度
  *   g_dbg_yaw_target / g_dbg_pitch_target  C2G 里的云台目标角（v1.1）
+ *   g_dbg_wheel_dz     拨轮经死区重标定后的归一化值（分离/小陀螺的自转输入，诊断用）
  */
 volatile uint8_t g_dbg_life_state = 0;
 volatile uint8_t g_dbg_mode = 0;
@@ -64,6 +65,7 @@ volatile float g_dbg_target_vy = 0.0f;
 volatile float g_dbg_target_w = 0.0f;
 volatile float g_dbg_yaw_target = 0.0f;
 volatile float g_dbg_pitch_target = 0.0f;
+volatile float g_dbg_wheel_dz = 0.0f;  ///< 拨轮死区重标定后的值（诊断小陀螺方向）
 }  // namespace
 
 /* Private function definitions ----------------------------------------------*/
@@ -178,6 +180,7 @@ void robot::Robot::update()
     g_dbg_target_vx = 0.0f;
     g_dbg_target_vy = 0.0f;
     g_dbg_target_w = 0.0f;
+    g_dbg_wheel_dz = 0.0f;
     if (chassis_ != nullptr) {
       chassis_->stop();  /* Dead/Resurrection：每周期零输出（契约 §7.4 输出归零矩阵） */
     }
@@ -223,6 +226,7 @@ void robot::Robot::update()
 
   /* 4.5 云台系目标速度（vx/vy 来自左摇杆，w 按模式），交给底盘逆解+轮速环 */
   const ChassisVelocity target = GenerateVelocity(*remote_, mode_, follow_w_);
+  g_dbg_wheel_dz = ApplyWheelDeadZone(remote_->rc_wheel());
   g_dbg_target_vx = target.vx;
   g_dbg_target_vy = target.vy;
   g_dbg_target_w = target.w;

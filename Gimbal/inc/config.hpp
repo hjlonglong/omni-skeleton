@@ -62,17 +62,22 @@ inline constexpr uint8_t kYawMotorId = 2u;
 inline constexpr uint8_t kPitchMotorId = 1u;
 inline constexpr int8_t kYawMotorDir = 1;     ///< TODO(硬件): 正方向标定
 inline constexpr int8_t kPitchMotorDir = 1;   ///< TODO(硬件): 正方向标定
-/* yaw 机械零位：实测上电时云台实际朝左（车体系 +90°），而电机零点在上电车头朝向
- * ——即电机读数为 0 时关节角应为 +π/2。DaMiao 的 angle_ = normAngle(实际角 - offset)，
- * 故取 offset = -π/2。上电后读 gimbal_debug::yaw_joint 应≈+1.571；若为 J，则按
- * kYawAngleOffset += (J - kPi/2) 重算（kPi 见 module_state.hpp）。*/
-inline constexpr float kYawAngleOffset = -1.5707963f;  ///< rad，机械零位对齐（上电云台朝左 +90°）
+/* yaw 机械零位：实测上电时云台实际朝左（车体系 +90°）；但 2026-11-11 实车跟随测试
+ * 出现 +7° 残差（follow 把 δ 控到 0 时云台停在车头左 7°），说明真实零位约 +97°
+ * （≈1.6930 rad）。DaMiao 的 angle_ = normAngle(实际角 - offset)，故取
+ * offset = -1.6930 rad ≈ -97°。上电后读 gimbal_debug::yaw_joint（或底盘
+ * g_dbg_delta）应≈+1.693；若实测读数为 J，则按 kYawAngleOffset = -J 重标定。 */
+inline constexpr float kYawAngleOffset = -1.6930f;  ///< rad，机械零位对齐（上电云台朝左约 +97°）
 inline constexpr float kPitchAngleOffset = 0.0f;  ///< rad，机械零位对齐（TODO(硬件)）
 
 /* ---- 云台机械限位/需求约束 ---- */
 inline constexpr float kPitchMin = -0.35f;   ///< rad，TODO(硬件)：低头限位（保守占位，实车标定）
 inline constexpr float kPitchMax = 0.55f;    ///< rad，TODO(硬件)：抬头限位（保守占位，实车标定）
-inline constexpr float kYawRateMax = 2.5f;   ///< rad/s，yaw 关节速度限幅
+/* yaw 关节速度限幅（位置环输出上限）。2026-11-11 由 2.5 提高到 8 rad/s：
+ * 小陀螺模式底盘自转可达 kMaxW/kSpinWMax=6 rad/s，云台要世界稳定就必须以
+ * 至少同等角速度反向补偿；原 2.5 rad/s 只能跟到 2.5 → 云台被底盘“拖着转”。
+ * 手动遥控的摇杆速率上限仍由 kStickYawGain=2.5 决定，不受影响。 */
+inline constexpr float kYawRateMax = 8.0f;   ///< rad/s，yaw 关节速度限幅（小陀螺稳定需 ≥ 底盘自转）
 inline constexpr float kPitchRateMax = 1.5f; ///< rad/s，pitch 关节速度限幅
 inline constexpr float kYawTorqueMax = 3.0f;   ///< N·m，yaw 力矩限幅（安全）
 inline constexpr float kPitchTorqueMax = 2.5f; ///< N·m，pitch 力矩限幅（安全）

@@ -119,8 +119,9 @@ inline constexpr float kMaxW = 6.0f;            ///< rad/s，分离模式拨轮�
 inline constexpr float kSpinWMax = 6.0f;        ///< rad/s，小陀螺自转限幅
 /* 跟随环输出限幅（2026-11-11 提高：原 3 → 6，允许快速追上云台；与自转限幅同量级） */
 inline constexpr float kFollowWMax = 6.0f;      ///< rad/s，跟随环输出限幅
-/* 跟随死区（2026-11-11 收紧：原 0.035 → 0.02 rad≈1.1°，跟随后残差更小） */
-inline constexpr float kFollowDeadBandRad = 0.02f;  ///< rad，跟随死区
+/* 跟随死区（2026-11-11 二次收紧：0.02 → 0.005 rad≈0.3°。原 0.02 rad 硬死区让底盘
+ * 在死区边界反复切入/切出，是“目标附近震荡较久”的根因之一） */
+inline constexpr float kFollowDeadBandRad = 0.005f;  ///< rad，跟随死区
 
 /* ---- 轮速环 PID 初值（位置式，输入 rad/s 误差，输出电流 A）---- */
 inline constexpr float kPidWheelKp = 1.2f;        ///< TODO(调参)
@@ -128,21 +129,22 @@ inline constexpr float kPidWheelKi = 0.8f;        ///< TODO(调参)
 inline constexpr float kPidWheelKd = 0.0f;        ///< TODO(调参)
 inline constexpr float kPidWheelIntegMax = kMaxWheelCurrent;  ///< 积分限幅
 
-/* ---- 跟随环 PD（2026-11-11 重调：激进 PD，去掉积分）----
+/* 跟随环 PD（2026-11-11 二次整定：提高阻尼、去掉目标附近硬死区）----
  * 输入 δ（云台世界朝向 − 车头世界朝向，rad），输出自转 w（rad/s），符号见 robot.cpp。
- * 原 Kp=1.2、Ki=0.8 的问题：云台快转时积分项累积（w 指令长时间偏大），δ 过零后
- * 积分来不及释放 → 底盘“冲过头再回正”（用户实测向右超调）。改为 PD：
- *   - 去掉积分（Ki=0）：消除过冲根因；
- *   - Kp 1.2 → 6.0：δ=15°(0.26rad) 就输出 ~1.6 rad/s，响应明显变快；
- *   - Kd 0 → 0.25：对 δ 测量值微分提供阻尼（chassis 超速追上时自动刹车），
- *     配合 d_lpf_alpha=0.5 滤掉编码器量化噪声；
- *   - 限幅 6 rad/s：δ=90° 时 P 项 9.4 被限到 6，全速追赶。
- * 若实车仍偏软/偏硬，优先调 kPidFollowKp（4~10），再微调 Kd（0.1~0.4），Ki 建议保持 0。 */
-inline constexpr float kPidFollowKp = 6.0f;       ///< TODO(调参)
+ * 历史：原 Kp=1.2/Ki=0.8 积分导致过冲 → 改 PD(Kp=6, Kd=0.25)；实车反馈“目标附近
+ * 震荡较久”，即欠阻尼：Kp 偏大、Kd 偏小，且 0.02 rad 硬死区让底盘在死区边界
+ * 反复切入/切出（latch 式低速爬行）。本次调整：
+ *   - Kp 6.0 → 5.0：降低回中刚度，减小超调动能；
+ *   - Kd 0.25 → 0.55：显著提高阻尼，震荡更快收敛；
+ *   - d_lpf_alpha 0.5 → 0.4：放宽微分低通（响应更快，噪声仍被抑制）；
+ *   - kFollowDeadBandRad 0.02 → 0.005 rad(≈0.3°)：硬死区只在几乎对齐时生效，
+ *     不再在 1° 量级反复开关造成“卡顿式震荡”。
+ * 若实车仍偏软/偏硬，优先微调 kPidFollowKp（4~8），再调 Kd（0.4~0.8），Ki 保持 0。 */
+inline constexpr float kPidFollowKp = 5.0f;       ///< TODO(调参)
 inline constexpr float kPidFollowKi = 0.0f;       ///< 建议保持 0（积分会导致跟随过冲）
-inline constexpr float kPidFollowKd = 0.25f;      ///< 阻尼项（对 δ 微分，带低通）
+inline constexpr float kPidFollowKd = 0.55f;      ///< 阻尼项（对 δ 微分，带低通）
 inline constexpr float kPidFollowIntegMax = kFollowWMax;
-inline constexpr float kPidFollowDlpfAlpha = 0.5f; ///< 跟随环微分一阶低通强度 [0,1]（越大越平滑）
+inline constexpr float kPidFollowDlpfAlpha = 0.4f; ///< 跟随环微分一阶低通强度 [0,1]（越大越平滑）
 
 /* ---- C2G v1.1 云台目标生成（契约 §3.2：底盘板把遥控换算成 gimbal_yaw_target /
  * gimbal_pitch_target；云台板消费）---- */
