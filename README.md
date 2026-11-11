@@ -38,7 +38,8 @@
 - 🟡 **待硬件验证（下一步）**：T2 世界系增稳（转底盘云台保持指向）、T4 死区/限速、T5 急停与恢复、T6 断联保护、T7 验收数据；底盘整车运动（直线/8 字/跟随/小陀螺）；L3/L4 整机联调。
 - 🟡 无硬件自测：底盘主机 harness 76/76 PASS（DT7 解码、三态机、三模式、δ、逆解、帧往返、集成序列）；云台 15 条编译期 `static_assert`；两板 L0 0 error / 0 warning。
 - ⛔ 待标定（`TODO(硬件)`）：轮安装角/方向/几何（`kXxxMountAngleRad`/`kWheelSign`/`kWheelDir`）、`kDeltaSign` 实车确认、DM 方向/PMAX 核对、PID 实车整定。
-- ✅ 云台 yaw 机械零位：上电实际朝左（车体系 +90°），已按实测预置 `kYawAngleOffset = -1.5707963f`（电机零点在上电姿态），上电 `yaw_joint ≈ +1.571`；若与实测不符按 `offset += (yaw_joint − π/2)` 校准（见契约 D-9）。
+- ✅ 云台 yaw 机械零位：上电实际朝左约 **+97°**，已按实测预置 `kYawAngleOffset = -1.6930f`（电机零点在上电姿态），上电 `yaw_joint ≈ +1.693`；该值消除了跟随模式 **+7° 残差**；若换车/重装按 `kYawAngleOffset = -J` 校准（J = 上电实测 `yaw_joint`，见契约 D-9）。
+- ✅ 跟随/小陀螺实车修正（2026-11-11）：跟随环 Kp/Kd/LPF/死区已二次整定（提高阻尼、消除死区边界震荡）；`kYawRateMax` 2.5→8.0 rad/s，使小陀螺（底盘自转 ≤6 rad/s）时云台仍能世界稳定、不被底盘拖着转。
 
 ## 调试开关与已知限制
 
@@ -88,19 +89,19 @@ cmake --build --preset Debug -j 8
 > 也可不用 preset，直接 `cmake -S . -B build -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$PWD/cmake/gcc-arm-none-eabi.cmake" -DCMAKE_BUILD_TYPE=Debug`；`-DCMAKE_TOOLCHAIN_FILE` 必须为绝对路径。
 > ELF 固定输出到 `<板>/build/omni_<board>.elf`，可用 Ozone（SWD 4 MHz）加载。
 
-基线（2026-11-12，yaw 零位 + δ 旋转 + 拨轮死区 + 跟随 PD 版，`TEST_MODE=0` 交付态，Debug 全量构建）：
+基线（2026-11-11，yaw 零位 97° + 跟随阻尼 + 小陀螺稳定版，`TEST_MODE=0` 交付态，Debug 全量构建）：
 
 | 板 | 编译单元 | 结果 | text | data | bss | ELF |
 | --- | --- | --- | --- | --- | --- | --- |
-| Chassis | 677 | 0 error / 0 warning | 64,980 B | 288 B | 8,504 B | 2,409,436 B |
-| Gimbal | 678 | 0 error / 0 warning | 66,008 B | 120 B | 8,200 B | 2,363,432 B |
+| Chassis | 677 | 0 error / 0 warning | 65,032 B | 288 B | 8,504 B | 2,409,564 B |
+| Gimbal | 678 | 0 error / 0 warning | 66,008 B | 120 B | 8,200 B | 2,363,436 B |
 
-固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x20261133`（539365683）、云台 `g_dbg_fw_tag = 0x20261130`（539365680）。
+固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x20261135`（539365685）、云台 `g_dbg_fw_tag = 0x20261134`（539365684）。
 
 无硬件自测：底盘主机 harness `D:\rm\task8_selftest\test_logic.exe`（76/76 PASS）；云台 `gimbal_math.hpp` 15 条 `static_assert` 随构建验证。
 
 Ozone 可观测调试变量：
-- 底盘全局：`g_dbg_life_state/mode/source/estop/remote_online/imu_ready/peer_online`、`g_dbg_yaw_target`/`g_dbg_pitch_target`、`g_dbg_rc_lv/lh/rv/rh/wheel/l_switch/r_switch`、`g_dbg_wheel_vel/curr/input/angle/temp[4]`、`g_dbg_wheel_tx_cnt`/`g_dbg_c2g_tx_cnt`、`g_can_wheel_rx_cnt[4]`、`g_can_wheel_unknown_cnt`、`g_can1_unknown_cnt`、`g_can_g2c_rx_cnt`、`g_dbg_dbus_*`；
+- 底盘全局：`g_dbg_life_state/mode/source/estop/remote_online/imu_ready/peer_online`、`g_dbg_delta`/`g_dbg_follow_w`、`g_dbg_target_vx/vy/w`、`g_dbg_wheel_dz`、`g_dbg_yaw_target`/`g_dbg_pitch_target`、`g_dbg_rc_lv/lh/rv/rh/wheel/l_switch/r_switch`、`g_dbg_wheel_vel/curr/input/angle/temp[4]`、`g_dbg_wheel_target/actual/out[4]`、`g_dbg_wheel_tx_cnt`/`g_dbg_c2g_tx_cnt`、`g_can_wheel_rx_cnt[4]`、`g_can_wheel_unknown_cnt`、`g_can1_unknown_cnt`、`g_can_g2c_rx_cnt`、`g_dbg_dbus_*`；
 - 云台：`robot::robot_debug::{life_state,safety_ok,c2g_online,c2g_remote_online,c2g_estop,c2g_yaw_target,c2g_pitch_target,c2g_chassis_imu_yaw}`、`g_dbg_dm_vel/curr/torq/angle/input/enabled/status_code[2]`、`g_dbg_can1_tx_cnt`/`g_dbg_can2_tx_cnt`/`g_dbg_g2c_tx_cnt`、`g_can_yaw_fdb_cnt`/`g_can_pitch_fdb_cnt`/`g_can_c2g_rx_cnt`。
 
 > 提示：云台目标为**世界系 yaw**（v1.1 语义），转动底盘时云台会反向补偿保持指向（T2 待验证项，属预期设计）。
