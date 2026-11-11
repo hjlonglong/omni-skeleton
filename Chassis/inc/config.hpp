@@ -117,8 +117,10 @@ inline constexpr float kWheelDeadZone = 0.10f;
 inline constexpr float kMaxVxVy = 1.5f;         ///< m/s，平移速度限幅
 inline constexpr float kMaxW = 6.0f;            ///< rad/s，分离模式拨轮自转限幅
 inline constexpr float kSpinWMax = 6.0f;        ///< rad/s，小陀螺自转限幅
-inline constexpr float kFollowWMax = 3.0f;      ///< rad/s，跟随环输出限幅
-inline constexpr float kFollowDeadBandRad = 0.035f;  ///< rad，跟随死区（≈2°）
+/* 跟随环输出限幅（2026-11-11 提高：原 3 → 6，允许快速追上云台；与自转限幅同量级） */
+inline constexpr float kFollowWMax = 6.0f;      ///< rad/s，跟随环输出限幅
+/* 跟随死区（2026-11-11 收紧：原 0.035 → 0.02 rad≈1.1°，跟随后残差更小） */
+inline constexpr float kFollowDeadBandRad = 0.02f;  ///< rad，跟随死区
 
 /* ---- 轮速环 PID 初值（位置式，输入 rad/s 误差，输出电流 A）---- */
 inline constexpr float kPidWheelKp = 1.2f;        ///< TODO(调参)
@@ -126,12 +128,21 @@ inline constexpr float kPidWheelKi = 0.8f;        ///< TODO(调参)
 inline constexpr float kPidWheelKd = 0.0f;        ///< TODO(调参)
 inline constexpr float kPidWheelIntegMax = kMaxWheelCurrent;  ///< 积分限幅
 
-/* ---- 跟随环 PID 初值（输入 δ 误差 rad，输出自转 w rad/s）---- */
-inline constexpr float kPidFollowKp = 1.2f;       ///< TODO(调参)
-inline constexpr float kPidFollowKi = 0.8f;       ///< TODO(调参)
-inline constexpr float kPidFollowKd = 0.0f;       ///< TODO(调参)
+/* ---- 跟随环 PD（2026-11-11 重调：激进 PD，去掉积分）----
+ * 输入 δ（云台世界朝向 − 车头世界朝向，rad），输出自转 w（rad/s），符号见 robot.cpp。
+ * 原 Kp=1.2、Ki=0.8 的问题：云台快转时积分项累积（w 指令长时间偏大），δ 过零后
+ * 积分来不及释放 → 底盘“冲过头再回正”（用户实测向右超调）。改为 PD：
+ *   - 去掉积分（Ki=0）：消除过冲根因；
+ *   - Kp 1.2 → 6.0：δ=15°(0.26rad) 就输出 ~1.6 rad/s，响应明显变快；
+ *   - Kd 0 → 0.25：对 δ 测量值微分提供阻尼（chassis 超速追上时自动刹车），
+ *     配合 d_lpf_alpha=0.5 滤掉编码器量化噪声；
+ *   - 限幅 6 rad/s：δ=90° 时 P 项 9.4 被限到 6，全速追赶。
+ * 若实车仍偏软/偏硬，优先调 kPidFollowKp（4~10），再微调 Kd（0.1~0.4），Ki 建议保持 0。 */
+inline constexpr float kPidFollowKp = 6.0f;       ///< TODO(调参)
+inline constexpr float kPidFollowKi = 0.0f;       ///< 建议保持 0（积分会导致跟随过冲）
+inline constexpr float kPidFollowKd = 0.25f;      ///< 阻尼项（对 δ 微分，带低通）
 inline constexpr float kPidFollowIntegMax = kFollowWMax;
-inline constexpr float kPidFollowDlpfAlpha = 0.2f; ///< 跟随环微分一阶低通强度 [0,1]（TODO(调参)）
+inline constexpr float kPidFollowDlpfAlpha = 0.5f; ///< 跟随环微分一阶低通强度 [0,1]（越大越平滑）
 
 /* ---- C2G v1.1 云台目标生成（契约 §3.2：底盘板把遥控换算成 gimbal_yaw_target /
  * gimbal_pitch_target；云台板消费）---- */
