@@ -37,7 +37,8 @@
 - ✅ 安全：急停/遥控离线/云台离线/IMU 未标定/电机反馈超时 → Dead + 全轴零输出；交付态 `TEST_MODE=0`、`DEBUG_NO_IWDG=0`。
 - 🟡 **待硬件验证（下一步）**：T2 世界系增稳（转底盘云台保持指向）、T4 死区/限速、T5 急停与恢复、T6 断联保护、T7 验收数据；底盘整车运动（直线/8 字/跟随/小陀螺）；L3/L4 整机联调。
 - 🟡 无硬件自测：底盘主机 harness 76/76 PASS（DT7 解码、三态机、三模式、δ、逆解、帧往返、集成序列）；云台 15 条编译期 `static_assert`；两板 L0 0 error / 0 warning。
-- ⛔ 待标定（`TODO(硬件)`）：轮安装角/方向/几何（`kXxxMountAngleRad`/`kWheelSign`/`kWheelDir`）、`kDeltaSign` 实车确认、DM 方向/零位/PMAX 核对、PID 实车整定。
+- ⛔ 待标定（`TODO(硬件)`）：轮安装角/方向/几何（`kXxxMountAngleRad`/`kWheelSign`/`kWheelDir`）、`kDeltaSign` 实车确认、DM 方向/PMAX 核对、PID 实车整定。
+- ✅ 云台 yaw 机械零位：上电实际朝左（车体系 +90°），已按实测预置 `kYawAngleOffset = -1.5707963f`（电机零点在上电姿态），上电 `yaw_joint ≈ +1.571`；若与实测不符按 `offset += (yaw_joint − π/2)` 校准（见契约 D-9）。
 
 ## 调试开关与已知限制
 

@@ -62,7 +62,11 @@ inline constexpr uint8_t kYawMotorId = 2u;
 inline constexpr uint8_t kPitchMotorId = 1u;
 inline constexpr int8_t kYawMotorDir = 1;     ///< TODO(硬件): 正方向标定
 inline constexpr int8_t kPitchMotorDir = 1;   ///< TODO(硬件): 正方向标定
-inline constexpr float kYawAngleOffset = 0.0f;    ///< rad，机械零位对齐（TODO(硬件)）
+/* yaw 机械零位：实测上电时云台实际朝左（车体系 +90°），而电机零点在上电车头朝向
+ * ——即电机读数为 0 时关节角应为 +π/2。DaMiao 的 angle_ = normAngle(实际角 - offset)，
+ * 故取 offset = -π/2。上电后读 gimbal_debug::yaw_joint 应≈+1.571；若为 J，则按
+ * kYawAngleOffset += (J - kPi/2) 重算（kPi 见 module_state.hpp）。*/
+inline constexpr float kYawAngleOffset = -1.5707963f;  ///< rad，机械零位对齐（上电云台朝左 +90°）
 inline constexpr float kPitchAngleOffset = 0.0f;  ///< rad，机械零位对齐（TODO(硬件)）
 
 /* ---- 云台机械限位/需求约束 ---- */
