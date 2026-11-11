@@ -62,12 +62,13 @@ inline constexpr uint8_t kYawMotorId = 2u;
 inline constexpr uint8_t kPitchMotorId = 1u;
 inline constexpr int8_t kYawMotorDir = 1;     ///< TODO(硬件): 正方向标定
 inline constexpr int8_t kPitchMotorDir = 1;   ///< TODO(硬件): 正方向标定
-/* yaw 机械零位：实测上电时云台实际朝左（车体系 +90°）；但 2026-11-11 实车跟随测试
- * 出现 +7° 残差（follow 把 δ 控到 0 时云台停在车头左 7°），说明真实零位约 +97°
- * （≈1.6930 rad）。DaMiao 的 angle_ = normAngle(实际角 - offset)，故取
- * offset = -1.6930 rad ≈ -97°。上电后读 gimbal_debug::yaw_joint（或底盘
- * g_dbg_delta）应≈+1.693；若实测读数为 J，则按 kYawAngleOffset = -J 重标定。 */
-inline constexpr float kYawAngleOffset = -1.6930f;  ///< rad，机械零位对齐（上电云台朝左约 +97°）
+/* yaw 机械零位（2026-11-11 实测校准点）：**云台正对车头（正方向）时，
+ * Ozone 读 `g_dbg_dm_angle[0] = 0.3590`**。DaMiao 的 angle_ = normAngle(实际角 - offset)，
+ * 要让“正对车头”对应关节角 0，须把 offset 再增大 0.359：
+ *   offset = -1.6930 + 0.3590 ≈ -1.3340 rad。
+ * 上电（电机零点、云台仍朝左约 76.4°）读数约为 +1.334；正对车头时读数应为 0.000。
+ * 若正对车头时读数仍为 R（非 0），按 `kYawAngleOffset += R` 再校一次。 */
+inline constexpr float kYawAngleOffset = -1.3340f;  ///< rad，yaw 机械零位（云台正对车头时 angle()=0）
 inline constexpr float kPitchAngleOffset = 0.0f;  ///< rad，机械零位对齐（TODO(硬件)）
 
 /* ---- 云台机械限位/需求约束 ---- */
