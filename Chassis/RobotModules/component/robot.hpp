@@ -259,6 +259,8 @@ struct LifeStateMachine {
  * @param follow_w  跟随环本拍输出（kFollow 模式使用，其余模式忽略）
  * @retval 云台系 (vx, vy, w)；所有分量已限幅（kMaxVxVy / kMaxW / kSpinWMax / kFollowWMax）
  * @note   vx：左摇杆上推为正（前进）；vy：左摇杆左推为正（左移）；
+ *         2026-11-15 方向修正：DBUS 实测左摇杆左推时 rc_lh() 为负，故 vy 取反，
+ *         保证“左推→左移、右推→右移”（此前写反，左推反而右移）。
  *         分离/小陀螺的 w 来自拨轮（经 ApplyWheelDeadZone 死区+重标定），跟随的 w 来自跟随环。
  *         小陀螺 kSpin（2026-11-11 用户确认）：左摇杆平移 + 拨轮 → 自转 w
  *         （vx/vy 仍按 δ 旋转到车体系），与分离模式的差别只有 kSpinWMax 限幅。
@@ -268,7 +270,7 @@ inline ChassisVelocity GenerateVelocity(const hello_world::remote_control::DT7 &
 {
   ChassisVelocity v;
   v.vx = ClampValue(ApplyDeadZone(rc.rc_lv()) * config::kMaxVxVy, config::kMaxVxVy);
-  v.vy = ClampValue(ApplyDeadZone(rc.rc_lh()) * config::kMaxVxVy, config::kMaxVxVy);
+  v.vy = ClampValue(-ApplyDeadZone(rc.rc_lh()) * config::kMaxVxVy, config::kMaxVxVy);
 
   const float wheel = ApplyWheelDeadZone(rc.rc_wheel());
   switch (mode) {

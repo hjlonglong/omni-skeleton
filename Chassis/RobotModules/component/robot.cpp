@@ -225,8 +225,11 @@ void robot::Robot::update()
    *       onStateTransit），保证云台不因上电目标为 0 而甩动。
    *     - pitch_target：绝对值目标，钳在软限位 [kGimbalPitchMin, kGimbalPitchMax]。
    *     - 非 Working 时本段不执行 → 目标冻结（C2G 的 working 位=0，云台板可据此丢弃）。 */
+  /* 2026-11-15 方向修正：DBUS 实测右摇杆左推时 rc_rh() 为负，而世界系要求的
+   * “左推→云台左转（+yaw）”需要目标增大，故这里改为累减 rc_rh（此前写反，
+   * 左推反而右转）。 */
   gimbal_yaw_target_ = robot::wrapPi(
-      gimbal_yaw_target_ + ApplyDeadZone(remote_->rc_rh()) *
+      gimbal_yaw_target_ - ApplyDeadZone(remote_->rc_rh()) *
                                config::kGimbalYawRateMax * config::kTs);
   gimbal_pitch_target_ = ClampAngle(
       gimbal_pitch_target_ + ApplyDeadZone(remote_->rc_rv()) *

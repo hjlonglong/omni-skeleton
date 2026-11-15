@@ -40,7 +40,7 @@
 - ⛔ 待标定（`TODO(硬件)`）：轮安装角/方向/几何（`kXxxMountAngleRad`/`kWheelSign`/`kWheelDir`）、`kDeltaSign` 实车确认、DM 方向/PMAX 核对、PID 实车整定。
 - ✅ 云台 yaw 机械零位：以实车校准点为准——**云台正对车头时 `g_dbg_dm_angle[0] ≈ 0`**，已预置 `kYawAngleOffset = -1.3340f`（上电读数 ≈ +1.334，正对车头 ≈ 0，跟随模式 7° 残差随之消除）；若正对车头读数 R≠0，按 `kYawAngleOffset += R` 再校（契约 D-9）。
 - ✅ 跟随/小陀螺实车修正（2026-11-11）：跟随环 Kp/Kd/LPF/死区已二次整定（提高阻尼、消除死区边界震荡）；`kYawRateMax` 2.5→8.0 rad/s，使小陀螺时云台仍能世界稳定、不被底盘拖着转。
-- ✅ 自转限幅下调（2026-11-15）：分离模式 `kMaxW` 6.0→**3.0 rad/s**（与小陀螺一致）；小陀螺 `kSpinWMax` 6.0→3.0→**2.0 rad/s**（云台仍跟不上，逐级降）；小陀螺支持**边旋转边平移**（左摇杆平移 + 拨轮自转），平移方向随云台朝向（δ 每 1 ms 更新）。
+- ✅ 自转限幅与云台跟手/方向修正（2026-11-15 最终版）：分离模式 `kMaxW` 6.0→**3.0 rad/s**；小陀螺 `kSpinWMax` 改为 **= kMaxW = 3.0 rad/s**（用户要求两模式同速）；小陀螺支持**边旋转边平移**（左摇杆平移 + 拨轮自转，方向随云台朝向 δ）；云台新增**底盘 yaw 速率前馈**（差分 C2G `chassis_imu_yaw` + 一阶 LPF，反向叠加到 yaw 关节速度环，消除小陀螺时“被底盘拖着转”的斜坡滞后），`kPidYawAngleKp` 8→12；`kGimbalYawRateMax` 2.5→**5.0 rad/s**（摇杆云台更快）；**左右摇杆水平方向修正**（`vy = -rc_lh·kMaxVxVy`、yaw 目标 `-= rc_rh·kGimbalYawRateMax·dt`，此前左推反而右移/右转）。
 - ✅ 拨轮死区增大（2026-11-15）：`kWheelDeadZone` 0.10→**0.20**——拨轮快速拨动后弹簧回中过冲越过中位，过冲量 >0.1，表现为“先按拨动方向转一点、随后反向自转”；死区吃掉回弹（死区外仍线性重标定到满量程）。
 - ✅ 拨轮顺时针分段编码（2026-11-15，按用户指定）：顺时针（展开值 >0）按 16 位原值 `v16` 分段——`v16∈[1024, 2048]` 线性加快（0→1），`v16 > 2048` 维持满速 **1.0**；逆时针 = 展开值 / 1387（0→−1）；方向/中位锁存基于**分段展开 + 最小幅度回绕判定**（顺 13 位基 / 逆 11 位基），两板同源。
 
@@ -92,19 +92,19 @@ cmake --build --preset Debug -j 8
 > 也可不用 preset，直接 `cmake -S . -B build -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$PWD/cmake/gcc-arm-none-eabi.cmake" -DCMAKE_BUILD_TYPE=Debug`；`-DCMAKE_TOOLCHAIN_FILE` 必须为绝对路径。
 > ELF 固定输出到 `<板>/build/omni_<board>.elf`，可用 Ozone（SWD 4 MHz）加载。
 
-基线（2026-11-15，yaw 校准点 + 跟随阻尼 + 小陀螺限幅减半 + 拨轮混合分段回绕解码 + 顺时针 v16 分段编码版，`TEST_MODE=0` 交付态，Debug 全量构建）：
+基线（2026-11-15，yaw 校准点 + 跟随阻尼 + 小陀螺限幅同速 + 云台速率前馈 + 左右摇杆方向修正 + 拨轮混合分段回绕解码 + 顺时针 v16 分段编码版，`TEST_MODE=0` 交付态，Debug 全量构建）：
 
 | 板 | 编译单元 | 结果 | text | data | bss | ELF |
 | --- | --- | --- | --- | --- | --- | --- |
-| Chassis | 677 | 0 error / 0 warning | 65,644 B | 304 B | 8,712 B | 2,415,868 B |
-| Gimbal | 678 | 0 error / 0 warning | 66,008 B | 120 B | 8,200 B | 2,363,596 B |
+| Chassis | 677 | 0 error / 0 warning | 65,652 B | 304 B | 8,712 B | 2,415,872 B |
+| Gimbal | 678 | 0 error / 0 warning | 66,248 B | 120 B | 8,216 B | 2,364,196 B |
 
-固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x20261143`（539365699）、云台 `g_dbg_fw_tag = 0x2026113E`（539365694）。
+固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x20261144`（539365700）、云台 `g_dbg_fw_tag = 0x2026113F`（539365695）。
 
 无硬件自测：底盘主机 harness `D:\rm\task8_selftest\test_logic.exe`（76/76 PASS）；云台 `gimbal_math.hpp` 15 条 `static_assert` 随构建验证。
 
 Ozone 可观测调试变量：
 - 底盘全局：`g_dbg_life_state/mode/source/estop/remote_online/imu_ready/peer_online`、`g_dbg_delta_rad`/`g_dbg_delta_deg`（δ，C 链接镜像，Ozone 直接输名字即可；`g_dbg_delta` 为内部链接同名量）、`g_dbg_follow_w`、`g_dbg_target_vx/vy/w`、`g_dbg_wheel_dz`、`g_dbg_rc_wheel_raw`（按 v16 分段选值：`v16>2048` 取 `v16 & 0x1FFF`、否则取 `v16 & 0x07FF`；中位=1024）、`g_dbg_rc_wheel_v16`（未截断 16 位原值）、`g_dbg_rc_wheel_unwrapped`（分段展开位移 counts：顺时针到底 +7027、逆时针到底 −1387；顺时针输出按 v16 分段（1024→2048 线性、>2048 满速），逆时针按 span 1387 归一；中位锁存带 25/140 counts 回差，回中后锁 0、离开超过 140 才重新计，避免弹簧回中振荡反复归零/上升）、`g_dbg_rc_wheel_raw_log[32]`/`g_dbg_rc_wheel_unwrapped_log[32]`（每帧原始/展开值环形日志，`g_dbg_rc_wheel_log_idx` 为下一个写位置，用于回中异常诊断）、`g_dbg_yaw_target`/`g_dbg_pitch_target`、`g_dbg_rc_lv/lh/rv/rh/wheel/l_switch/r_switch`、`g_dbg_wheel_vel/curr/input/angle/temp[4]`、`g_dbg_wheel_target/actual/out[4]`、`g_dbg_wheel_tx_cnt`/`g_dbg_c2g_tx_cnt`、`g_can_wheel_rx_cnt[4]`、`g_can_wheel_unknown_cnt`、`g_can1_unknown_cnt`、`g_can_g2c_rx_cnt`、`g_dbg_dbus_*`；
-- 云台：`robot::robot_debug::{life_state,safety_ok,c2g_online,c2g_remote_online,c2g_estop,c2g_yaw_target,c2g_pitch_target,c2g_chassis_imu_yaw}`、`g_dbg_dm_vel/curr/torq/angle/input/enabled/status_code[2]`、`g_dbg_can1_tx_cnt`/`g_dbg_can2_tx_cnt`/`g_dbg_g2c_tx_cnt`、`g_can_yaw_fdb_cnt`/`g_can_pitch_fdb_cnt`/`g_can_c2g_rx_cnt`。
+- 云台：`robot::robot_debug::{life_state,safety_ok,c2g_online,c2g_remote_online,c2g_estop,c2g_yaw_target,c2g_pitch_target,c2g_chassis_imu_yaw}`、`gimbal_debug::{yaw_world_target,yaw_joint_target,yaw_joint,yaw_torque,pitch_target,pitch_joint,pitch_torque,cycle_count}`（前馈调试新增 `gimbal_debug::chassis_yaw_rate`、`gimbal_debug::yaw_vel_ff`，单位 rad/s）、`g_dbg_dm_vel/curr/torq/angle/input/enabled/status_code[2]`、`g_dbg_can1_tx_cnt`/`g_dbg_can2_tx_cnt`/`g_dbg_g2c_tx_cnt`、`g_can_yaw_fdb_cnt`/`g_can_pitch_fdb_cnt`/`g_can_c2g_rx_cnt`。
 
 > 提示：云台目标为**世界系 yaw**（v1.1 语义），转动底盘时云台会反向补偿保持指向（T2 待验证项，属预期设计）。

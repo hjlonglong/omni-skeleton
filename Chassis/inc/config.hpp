@@ -119,8 +119,10 @@ inline constexpr float kWheelDeadZone = 0.20f;
 
 /* ---- 速度限幅（云台系）---- */
 inline constexpr float kMaxVxVy = 1.5f;         ///< m/s，平移速度限幅
-inline constexpr float kMaxW = 3.0f;            ///< rad/s，分离模式拨轮自转限幅（2026-11-15：6.0→3.0 减半，与小陀螺一致）
-inline constexpr float kSpinWMax = 2.0f;        ///< rad/s，小陀螺自转限幅（2026-11-15：3.0→2.0，再降 2/3，给云台跟踪余量）
+inline constexpr float kMaxW = 3.0f;            ///< rad/s，分离模式拨轮自转限幅（2026-11-15：6.0→3.0 减半）
+/* 小陀螺自转限幅：2026-11-15 用户实测「小陀螺与分离模式旋转速度不相等」，要求
+ * 小陀螺上限 = 分离模式上限 → 直接引用 kMaxW（两模式同值，改一处即可同步）。 */
+inline constexpr float kSpinWMax = kMaxW;       ///< rad/s，小陀螺自转限幅（= kMaxW）
 /* 跟随环输出限幅（2026-11-11 提高：原 3 → 6，允许快速追上云台；与自转限幅同量级） */
 inline constexpr float kFollowWMax = 6.0f;      ///< rad/s，跟随环输出限幅
 /* 跟随死区（2026-11-11 二次收紧：0.02 → 0.005 rad≈0.3°。原 0.02 rad 硬死区让底盘
@@ -152,7 +154,7 @@ inline constexpr float kPidFollowDlpfAlpha = 0.4f; ///< 跟随环微分一阶低
 
 /* ---- C2G v1.1 云台目标生成（契约 §3.2：底盘板把遥控换算成 gimbal_yaw_target /
  * gimbal_pitch_target；云台板消费）---- */
-inline constexpr float kGimbalYawRateMax = 2.5f;    ///< rad/s，云台 yaw 目标角速率上限（TODO(调参)）
+inline constexpr float kGimbalYawRateMax = 5.0f;    ///< rad/s，云台 yaw 目标角速率上限（2026-11-15 2.5→5.0：原速率云台转得太慢）
 inline constexpr float kGimbalPitchRateMax = 1.5f;  ///< rad/s，云台 pitch 目标角速率上限（TODO(调参)）
 inline constexpr float kGimbalPitchMin = -0.35f;    ///< rad，pitch 软限位下限（TODO(硬件): 与云台板 config 对齐）
 inline constexpr float kGimbalPitchMax = 0.55f;     ///< rad，pitch 软限位上限（TODO(硬件): 与云台板 config 对齐）

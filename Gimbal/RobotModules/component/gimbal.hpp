@@ -56,6 +56,8 @@ extern volatile float yaw_torque;        ///< 本周期下发的 yaw MIT 力矩�
 extern volatile float pitch_target;      ///< clamp 后的 pitch 目标（rad）
 extern volatile float pitch_joint;       ///< pitch 关节反馈（rad）
 extern volatile float pitch_torque;      ///< 本周期下发的 pitch MIT 力矩（N·m）
+extern volatile float chassis_yaw_rate;  ///< 底盘 yaw 角速度（rad/s，LPF 后，2026-11-15 前馈用）
+extern volatile float yaw_vel_ff;        ///< yaw 关节速度前馈（rad/s，=−底盘 yaw 速率）
 extern volatile uint32_t cycle_count;    ///< update() 调用计数
 }  // namespace gimbal_debug
 
@@ -127,6 +129,12 @@ class Gimbal
 
   float yaw_world_target_ = 0.0f;  ///< 期望世界 yaw（rad）
   float chassis_yaw_ = 0.0f;       ///< 底盘 IMU yaw（rad）
+  /* 底盘 yaw 速率前馈（2026-11-15）：小陀螺时底盘自转 3 rad/s，纯位置环跟踪
+   * 斜坡会有稳态滞后（误差 = 角速度/Kp），前馈直接把所需关节反向速度加到
+   * 速度环目标上，消除“云台被底盘拖着转”。差分来自 C2G 的 chassis_imu_yaw。 */
+  float prev_chassis_yaw_ = 0.0f;    ///< 上一拍底盘 yaw（差分用）
+  bool chassis_yaw_inited_ = false;  ///< 上一拍是否有效（进 Working 首拍不计速率）
+  float chassis_yaw_rate_ = 0.0f;    ///< 底盘 yaw 速率 LPF 值（rad/s）
   float pitch_target_ = 0.0f;      ///< 期望 pitch（rad，未 clamp）
   float yaw_vel_integ_ = 0.0f;     ///< yaw 速度环积分状态
   float pitch_vel_integ_ = 0.0f;   ///< pitch 速度环积分状态

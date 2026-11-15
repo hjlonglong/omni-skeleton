@@ -39,6 +39,8 @@ volatile float yaw_torque = 0.0f;
 volatile float pitch_target = 0.0f;
 volatile float pitch_joint = 0.0f;
 volatile float pitch_torque = 0.0f;
+volatile float chassis_yaw_rate = 0.0f;
+volatile float yaw_vel_ff = 0.0f;
 volatile uint32_t cycle_count = 0;
 }  // namespace gimbal_debug
 
@@ -103,6 +105,8 @@ void Gimbal::init(hello_world::motor::Motor *yaw,
   pitch_target_ = 0.0f;
   yaw_vel_integ_ = 0.0f;
   pitch_vel_integ_ = 0.0f;
+  chassis_yaw_inited_ = false;  /* 重置底盘 yaw 速率前馈的差分基准 */
+  chassis_yaw_rate_ = 0.0f;
   yaw_torque_ = 0.0f;
   pitch_torque_ = 0.0f;
 
@@ -148,11 +152,27 @@ void Gimbal::update()
   const float yaw_joint_target =
       gimbal_math::YawJointTarget(yaw_world_target_, chassis_yaw_);
 
+  /* 2.1 底盘 yaw 速率前馈（2026-11-15）：差分 C2G 底盘 yaw（1e-3 rad 量化）并 LPF，
+   *     反向叠加到关节速度目标。小陀螺底盘自转 ~3 rad/s 时，纯位置环会有
+   *     “角速度/Kp”的稳态滞后；前馈直接给出所需的关节反向速度，云台不再被拖着转。 */
+  if (!chassis_yaw_inited_) {
+    prev_chassis_yaw_ = chassis_yaw_;
+    chassis_yaw_inited_ = true;
+  }
+  const float yaw_rate_raw =
+      gimbal_math::WrapPi(chassis_yaw_ - prev_chassis_yaw_) / config::kTs;
+  prev_chassis_yaw_ = chassis_yaw_;
+  chassis_yaw_rate_ = gimbal_math::ClampValue(
+      chassis_yaw_rate_ * 0.85f + yaw_rate_raw * 0.15f, -config::kYawRateMax,
+      config::kYawRateMax);
+  const float yaw_vel_ff = -chassis_yaw_rate_;
+
   /* 3. yaw 位置环：把关节反馈幂等到目标分支后进 PID（误差 = 最短路径 wrap） */
   const float yaw_err = gimbal_math::WrapPi(yaw_joint_target - yaw_joint);
   const float yaw_fdb_equiv = yaw_joint_target - yaw_err;
-  const float yaw_vel_target =
-      yaw_pid_->calc(yaw_joint_target, yaw_fdb_equiv, config::kTs);
+  const float yaw_vel_target = gimbal_math::ClampValue(
+      yaw_pid_->calc(yaw_joint_target, yaw_fdb_equiv, config::kTs) + yaw_vel_ff,
+      -config::kYawRateMax, config::kYawRateMax);
 
   /* 4. pitch：目标软限位 clamp 后做位置环（pitch 反馈无 wrap） */
   const float pitch_target = gimbal_math::ClampPitchTarget(pitch_target_);
@@ -180,6 +200,8 @@ void Gimbal::update()
   gimbal_debug::yaw_joint_target = yaw_joint_target;
   gimbal_debug::yaw_joint = yaw_joint;
   gimbal_debug::yaw_torque = yaw_torque;
+  gimbal_debug::chassis_yaw_rate = chassis_yaw_rate_;
+  gimbal_debug::yaw_vel_ff = yaw_vel_ff;
   gimbal_debug::pitch_target = pitch_target;
   gimbal_debug::pitch_joint = pitch_joint;
   gimbal_debug::pitch_torque = pitch_torque;
@@ -201,6 +223,8 @@ void Gimbal::stop()
   }
   yaw_vel_integ_ = 0.0f;
   pitch_vel_integ_ = 0.0f;
+  chassis_yaw_inited_ = false;  /* 重置底盘 yaw 速率前馈的差分基准 */
+  chassis_yaw_rate_ = 0.0f;
   yaw_torque_ = 0.0f;
   pitch_torque_ = 0.0f;
   gimbal_debug::yaw_torque = 0.0f;
