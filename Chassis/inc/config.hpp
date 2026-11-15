@@ -108,10 +108,14 @@ inline constexpr int8_t kRotationSign = 1;           ///< TODO(硬件): 麦轮�
 /* ---- 状态机/遥控输入（v1.1）---- */
 inline constexpr float kStickCenterTol = 0.1f;    ///< 摇杆回中判定阈值（契约 §7.1：|摇杆|<0.1）
 inline constexpr uint32_t kModeDebounceMs = 30;   ///< ms，左拨杆模式切换去抖（契约 §7.2 小陀螺 ≥30 ms）
-/* 拨轮死区（2026-11-12 实车：拨轮回中附近抖动 → 自转指令抖）。
+/* 拨轮死区。
  * 归一化输入 [-1,1]；|x| <= kWheelDeadZone 输出 0，死区外线性重标定到满量程
- * （( |x|-dz )/(1-dz)），保证手感与最大转速不变。0 表示关闭；实车可调范围 0.05~0.15。 */
-inline constexpr float kWheelDeadZone = 0.10f;
+ * （( |x|-dz )/(1-dz)），保证手感与最大转速不变。0 表示关闭。
+ * 2026-11-12 初值 0.10（回中附近抖动 → 自转指令抖）；
+ * 2026-11-15 增大到 0.20：拨轮快速拨动后弹簧回中会越过中位（过冲），过冲量
+ * 常超过 0.1，表现为“先按拨动方向转一点、随后反方向自转”；加大死区吃掉回弹。
+ * 实车可调 0.15~0.25（过大则小转角无响应）。 */
+inline constexpr float kWheelDeadZone = 0.20f;
 
 /* ---- 速度限幅（云台系）---- */
 inline constexpr float kMaxVxVy = 1.5f;         ///< m/s，平移速度限幅
