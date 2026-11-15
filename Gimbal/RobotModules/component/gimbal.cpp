@@ -46,6 +46,7 @@ volatile float yaw_err = 0.0f;
 volatile float yaw_vel_target = 0.0f;
 volatile float pitch_err = 0.0f;
 volatile float pitch_vel_target = 0.0f;
+volatile float pitch_vel_ff = 0.0f;
 volatile uint32_t cycle_count = 0;
 }  // namespace gimbal_debug
 
@@ -112,6 +113,8 @@ void Gimbal::init(hello_world::motor::Motor *yaw,
   pitch_vel_integ_ = 0.0f;
   chassis_yaw_inited_ = false;  /* 重置底盘 yaw 速率前馈的差分基准 */
   chassis_yaw_rate_ = 0.0f;
+  pitch_target_inited_ = false;  /* 重置 pitch 目标速率前馈的差分基准 */
+  pitch_vel_ff_ = 0.0f;
   yaw_torque_ = 0.0f;
   pitch_torque_ = 0.0f;
 
@@ -185,8 +188,27 @@ void Gimbal::update()
 
   /* 4. pitch：目标软限位 clamp 后做位置环（pitch 反馈无 wrap） */
   const float pitch_target = gimbal_math::ClampPitchTarget(pitch_target_);
-  const float pitch_vel_target =
-      pitch_pid_->calc(pitch_target, pitch_joint, config::kTs);
+
+  /* 4.1 pitch 目标角速率前馈（2026-11-15）：目标以速率上限斜坡变化时，纯位置环
+   *     稳态滞后 = 目标速率/Kp（1.5/8 ≈ 0.19 rad ≈ 11°），即“跟不上目标”。
+   *     差分目标角 + 强低通/死区得到前馈，直接叠加到速度环目标，消除斜坡滞后；
+   *     位置环输出限幅 kPitchRateMax 同时由 1.5 提高到 3.0，给瞬态留余量。 */
+  if (!pitch_target_inited_) {
+    prev_pitch_target_ = pitch_target;
+    pitch_target_inited_ = true;
+  }
+  const float pitch_rate_raw =
+      (pitch_target - prev_pitch_target_) / config::kTs;
+  prev_pitch_target_ = pitch_target;
+  const float pitch_rate_cmd =
+      ((pitch_rate_raw > -0.08f) && (pitch_rate_raw < 0.08f)) ? 0.0f
+                                                              : pitch_rate_raw;
+  pitch_vel_ff_ = gimbal_math::ClampValue(
+      pitch_vel_ff_ * (1.0f - 0.06f) + pitch_rate_cmd * 0.06f,
+      -config::kPitchRateMax, config::kPitchRateMax);
+  const float pitch_vel_target = gimbal_math::ClampValue(
+      pitch_pid_->calc(pitch_target, pitch_joint, config::kTs) + pitch_vel_ff_,
+      -config::kPitchRateMax, config::kPitchRateMax);
 
   /* 5. 速度环 → MIT 力矩（力矩限幅在速度环内完成） */
   const float yaw_torque =
@@ -217,6 +239,7 @@ void Gimbal::update()
   gimbal_debug::yaw_vel_target = yaw_vel_target;
   gimbal_debug::pitch_err = pitch_target - pitch_joint;
   gimbal_debug::pitch_vel_target = pitch_vel_target;
+  gimbal_debug::pitch_vel_ff = pitch_vel_ff_;
   gimbal_debug::pitch_target = pitch_target;
   gimbal_debug::pitch_joint = pitch_joint;
   gimbal_debug::pitch_torque = pitch_torque;
@@ -240,6 +263,8 @@ void Gimbal::stop()
   pitch_vel_integ_ = 0.0f;
   chassis_yaw_inited_ = false;  /* 重置底盘 yaw 速率前馈的差分基准 */
   chassis_yaw_rate_ = 0.0f;
+  pitch_target_inited_ = false;  /* 重置 pitch 目标速率前馈的差分基准 */
+  pitch_vel_ff_ = 0.0f;
   yaw_torque_ = 0.0f;
   pitch_torque_ = 0.0f;
   gimbal_debug::yaw_torque = 0.0f;

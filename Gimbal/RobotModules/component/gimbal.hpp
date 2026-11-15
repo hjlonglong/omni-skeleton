@@ -62,7 +62,8 @@ extern volatile float world_yaw_est;     ///< 世界 yaw 估计（rad）= chassi
 extern volatile float yaw_err;           ///< yaw 位置误差（rad，WrapPi 后）
 extern volatile float yaw_vel_target;    ///< yaw 速度环目标（rad/s，位置环输出+前馈，已限幅）
 extern volatile float pitch_err;         ///< pitch 位置误差（rad）
-extern volatile float pitch_vel_target;  ///< pitch 速度环目标（rad/s，位置环输出，已限幅）
+extern volatile float pitch_vel_target;  ///< pitch 速度环目标（rad/s，位置环输出+目标速率前馈，已限幅）
+extern volatile float pitch_vel_ff;      ///< pitch 目标速率前馈（rad/s，2026-11-15）
 extern volatile uint32_t cycle_count;    ///< update() 调用计数
 }  // namespace gimbal_debug
 
@@ -141,6 +142,11 @@ class Gimbal
   bool chassis_yaw_inited_ = false;  ///< 上一拍是否有效（进 Working 首拍不计速率）
   float chassis_yaw_rate_ = 0.0f;    ///< 底盘 yaw 速率 LPF 值（rad/s）
   float pitch_target_ = 0.0f;      ///< 期望 pitch（rad，未 clamp）
+  /* pitch 目标角速率前馈（2026-11-15）：pitch 目标 ramp 时位置环有“速率/Kp”
+   * 的稳态滞后（1.5 rad/s ÷ Kp 8 ≈ 0.19 rad ≈ 11°），差分目标角得到前馈后消除。 */
+  float prev_pitch_target_ = 0.0f;    ///< 上一拍 pitch 目标（差分用）
+  bool pitch_target_inited_ = false;  ///< 首拍不计速率
+  float pitch_vel_ff_ = 0.0f;         ///< pitch 目标速率前馈 LPF 值（rad/s）
   float yaw_vel_integ_ = 0.0f;     ///< yaw 速度环积分状态
   float pitch_vel_integ_ = 0.0f;   ///< pitch 速度环积分状态
   float yaw_torque_ = 0.0f;        ///< 本周期 yaw 力矩（N·m）
