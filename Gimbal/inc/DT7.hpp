@@ -184,6 +184,14 @@ class DT7 {
   float rc_rh_ = 0.0f;     ///< 遥控器右摇杆水平值，[-1, 1]
   float rc_wheel_ = 0.0f;  ///< 遥控器拨轮值，[-1, 1]
 
+  /* 拨轮 13 位编码展开（2026-11-15 实车实测：raw[17] 最大 31 → 该接收机拨轮为 13 位编码，
+   * 中位 1024；顺时针到底 8051=+7027 counts，逆时针到底 1684=（1024-7531）mod 8192）。
+   * 以增量方式跨 8192 回绕重建绝对位移，再按实测正/负满量程归一化，
+   * 从而消除“拨到高段被 &0x07FF 截断 → 满量程反向”的问题。 */
+  uint16_t wheel_raw13_ = 0;     ///< 上一拍 13 位原始值（回绕判定用）
+  int32_t wheel_unwrapped_ = 0;  ///< 相对上电位置的展开位移（counts）
+  bool wheel_inited_ = false;    ///< 是否已用首拍建立展开基准
+
   SwitchState rc_l_switch_ = kSwitchStateUp;  ///< 遥控器左拨杆值
   SwitchState rc_r_switch_ = kSwitchStateUp;  ///< 遥控器右拨杆值
 

@@ -91,19 +91,19 @@ cmake --build --preset Debug -j 8
 > 也可不用 preset，直接 `cmake -S . -B build -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$PWD/cmake/gcc-arm-none-eabi.cmake" -DCMAKE_BUILD_TYPE=Debug`；`-DCMAKE_TOOLCHAIN_FILE` 必须为绝对路径。
 > ELF 固定输出到 `<板>/build/omni_<board>.elf`，可用 Ozone（SWD 4 MHz）加载。
 
-基线（2026-11-15，yaw 校准点 + 跟随阻尼 + 小陀螺限幅减半版，`TEST_MODE=0` 交付态，Debug 全量构建）：
+基线（2026-11-15，yaw 校准点 + 跟随阻尼 + 小陀螺限幅减半 + 拨轮 13 位增量解码版，`TEST_MODE=0` 交付态，Debug 全量构建）：
 
 | 板 | 编译单元 | 结果 | text | data | bss | ELF |
 | --- | --- | --- | --- | --- | --- | --- |
-| Chassis | 677 | 0 error / 0 warning | 65,112 B | 292 B | 8,516 B | 2,409,996 B |
+| Chassis | 677 | 0 error / 0 warning | 65,280 B | 304 B | 8,520 B | 2,410,700 B |
 | Gimbal | 678 | 0 error / 0 warning | 66,008 B | 120 B | 8,200 B | 2,363,436 B |
 
-固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x2026113C`（539365692）、云台 `g_dbg_fw_tag = 0x20261137`（539365687）。
+固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x2026113D`（539365693）、云台 `g_dbg_fw_tag = 0x20261138`（539365688）。
 
 无硬件自测：底盘主机 harness `D:\rm\task8_selftest\test_logic.exe`（76/76 PASS）；云台 `gimbal_math.hpp` 15 条 `static_assert` 随构建验证。
 
 Ozone 可观测调试变量：
-- 底盘全局：`g_dbg_life_state/mode/source/estop/remote_online/imu_ready/peer_online`、`g_dbg_delta_rad`/`g_dbg_delta_deg`（δ，C 链接镜像，Ozone 直接输名字即可；`g_dbg_delta` 为内部链接同名量）、`g_dbg_follow_w`、`g_dbg_target_vx/vy/w`、`g_dbg_wheel_dz`、`g_dbg_rc_wheel_raw`（拨轮 11 位截断值，中位=1024）、`g_dbg_rc_wheel_v16`（未截断 16 位原值，诊断“满量程反向”）、`g_dbg_yaw_target`/`g_dbg_pitch_target`、`g_dbg_rc_lv/lh/rv/rh/wheel/l_switch/r_switch`、`g_dbg_wheel_vel/curr/input/angle/temp[4]`、`g_dbg_wheel_target/actual/out[4]`、`g_dbg_wheel_tx_cnt`/`g_dbg_c2g_tx_cnt`、`g_can_wheel_rx_cnt[4]`、`g_can_wheel_unknown_cnt`、`g_can1_unknown_cnt`、`g_can_g2c_rx_cnt`、`g_dbg_dbus_*`；
+- 底盘全局：`g_dbg_life_state/mode/source/estop/remote_online/imu_ready/peer_online`、`g_dbg_delta_rad`/`g_dbg_delta_deg`（δ，C 链接镜像，Ozone 直接输名字即可；`g_dbg_delta` 为内部链接同名量）、`g_dbg_follow_w`、`g_dbg_target_vx/vy/w`、`g_dbg_wheel_dz`、`g_dbg_rc_wheel_raw`（拨轮 13 位原始值，中位=1024；顺时针到底 8051、逆时针到底 1684）、`g_dbg_rc_wheel_v16`（未截断 16 位原值）、`g_dbg_rc_wheel_unwrapped`（13 位增量展开位移 counts：顺时针到底 +7027、逆时针到底 −7531，用于验证回绕处理）、`g_dbg_yaw_target`/`g_dbg_pitch_target`、`g_dbg_rc_lv/lh/rv/rh/wheel/l_switch/r_switch`、`g_dbg_wheel_vel/curr/input/angle/temp[4]`、`g_dbg_wheel_target/actual/out[4]`、`g_dbg_wheel_tx_cnt`/`g_dbg_c2g_tx_cnt`、`g_can_wheel_rx_cnt[4]`、`g_can_wheel_unknown_cnt`、`g_can1_unknown_cnt`、`g_can_g2c_rx_cnt`、`g_dbg_dbus_*`；
 - 云台：`robot::robot_debug::{life_state,safety_ok,c2g_online,c2g_remote_online,c2g_estop,c2g_yaw_target,c2g_pitch_target,c2g_chassis_imu_yaw}`、`g_dbg_dm_vel/curr/torq/angle/input/enabled/status_code[2]`、`g_dbg_can1_tx_cnt`/`g_dbg_can2_tx_cnt`/`g_dbg_g2c_tx_cnt`、`g_can_yaw_fdb_cnt`/`g_can_pitch_fdb_cnt`/`g_can_c2g_rx_cnt`。
 
 > 提示：云台目标为**世界系 yaw**（v1.1 语义），转动底盘时云台会反向补偿保持指向（T2 待验证项，属预期设计）。

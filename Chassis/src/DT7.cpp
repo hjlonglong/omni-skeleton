@@ -32,6 +32,7 @@ static const float kRcRatio = 1.0f / 660;
 extern "C" {
 __attribute__((used)) volatile uint16_t g_dbg_rc_wheel_raw = 1024u;
 __attribute__((used)) volatile uint16_t g_dbg_rc_wheel_v16 = 1024u;
+__attribute__((used)) volatile int32_t g_dbg_rc_wheel_unwrapped = 0;
 }
 
 /* Exported function definitions ---------------------------------------------*/
@@ -48,13 +49,42 @@ void DT7::decode(const uint8_t rx_data[kRcRxDataLen])
   rc_lh_ = (tmp - kRcOffset) * kRcRatio;
   tmp = ((rx_data[4] >> 1) | (rx_data[5] << 7)) & 0x07FF;
   rc_lv_ = (tmp - kRcOffset) * kRcRatio;
-  /* 拨轮：11 位通道，必须与 0x07FF 掩码；否则 raw[17] 的高 5 位垃圾会把
-   * 结果放大（实测 raw[17]=26 时 wheel 会算成 +8.6，现象是"拨轮数值在 -1~10
-   * 间乱跳"）。2026-11-08 修正。 */
-  tmp = (rx_data[16] | (rx_data[17] << 8)) & 0x07FF;
-  g_dbg_rc_wheel_raw = tmp;  /* 原始 11 位值（诊断“拨到底反向”用，中位=1024） */
-  g_dbg_rc_wheel_v16 = static_cast<uint16_t>(rx_data[16] | (rx_data[17] << 8));  /* 未截断的 16 位原值 */
-  rc_wheel_ = (tmp - kRcOffset) * kRcRatio;
+  /* 拨轮：该接收机实际为 13 位编码（2026-11-15 实测 raw[17] 最大 31）。
+   * 中位 = 1024=0x0400；顺时针到底 = 0x1F73=8051（+7027 counts）；
+   * 逆时针到底 = 0x0694=1684，即 (1024-7531) mod 8192（跨 0 回绕）。
+   * 旧实现 &0x07FF 只保留 11 位，8000+ 的值会截成 0~2047 的锯齿，
+   * 于是“拨到高段”被算成负值 → 满量程反向。这里改为 13 位增量展开。 */
+  static constexpr int32_t kWheelSpanPos = 7027;  ///< 顺时针到底 counts（实测，TODO(硬件) 复核）
+  static constexpr int32_t kWheelSpanNeg = 7531;  ///< 逆时针到底 counts（实测，TODO(硬件) 复核）
+  static constexpr int32_t kWheelWrapHalf = 4096;  ///< 13 位半量程（回绕判定阈值）
+
+  const uint16_t v16 = static_cast<uint16_t>(rx_data[16] | (rx_data[17] << 8));
+  g_dbg_rc_wheel_v16 = v16;                    /* 未截断 16 位原值（诊断） */
+  const uint16_t v13 = static_cast<uint16_t>(v16 & 0x1FFFu);  /* 13 位编码值 */
+  g_dbg_rc_wheel_raw = v13;                    /* 13 位原始值（诊断） */
+  if (!wheel_inited_) {
+    wheel_raw13_ = v13;
+    wheel_unwrapped_ = 0;
+    wheel_inited_ = true;
+  } else {
+    int32_t d = static_cast<int32_t>(v13) - static_cast<int32_t>(wheel_raw13_);
+    if (d > kWheelWrapHalf) {
+      d -= 8192;  /* 13 位正向回绕 */
+    } else if (d < -kWheelWrapHalf) {
+      d += 8192;  /* 13 位负向回绕 */
+    }
+    wheel_raw13_ = v13;
+    wheel_unwrapped_ += d;
+    if (wheel_unwrapped_ > kWheelSpanPos) {
+      wheel_unwrapped_ = kWheelSpanPos;
+    } else if (wheel_unwrapped_ < -kWheelSpanNeg) {
+      wheel_unwrapped_ = -kWheelSpanNeg;
+    }
+  }
+  rc_wheel_ = (wheel_unwrapped_ >= 0)
+                  ? static_cast<float>(wheel_unwrapped_) / static_cast<float>(kWheelSpanPos)
+                  : static_cast<float>(wheel_unwrapped_) / static_cast<float>(kWheelSpanNeg);
+  g_dbg_rc_wheel_unwrapped = wheel_unwrapped_;
 
   /* 拨杆位域（DBUS 第 5 字节高半字节）：bit4-5 = s2，bit6-7 = s1。
    * 2026-11-11 实物复核（用户）：物理**左**拨杆对应 bit6-7、右拨杆对应 bit4-5，
