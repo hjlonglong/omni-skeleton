@@ -40,7 +40,7 @@
 - ⛔ 待标定（`TODO(硬件)`）：轮安装角/方向/几何（`kXxxMountAngleRad`/`kWheelSign`/`kWheelDir`）、`kDeltaSign` 实车确认、DM 方向/PMAX 核对、PID 实车整定。
 - ✅ 云台 yaw 机械零位：以实车校准点为准——**云台正对车头时 `g_dbg_dm_angle[0] ≈ 0`**，已预置 `kYawAngleOffset = -1.3340f`（上电读数 ≈ +1.334，正对车头 ≈ 0，跟随模式 7° 残差随之消除）；若正对车头读数 R≠0，按 `kYawAngleOffset += R` 再校（契约 D-9）。
 - ✅ 跟随/小陀螺实车修正（2026-11-11）：跟随环 Kp/Kd/LPF/死区已二次整定（提高阻尼、消除死区边界震荡）；`kYawRateMax` 2.5→8.0 rad/s，使小陀螺时云台仍能世界稳定、不被底盘拖着转。
-- ✅ 小陀螺自转限幅减半（2026-11-15）：`kSpinWMax` 6.0→**3.0 rad/s**（云台仍跟不上实车反馈）；小陀螺支持**边旋转边平移**（左摇杆平移 + 拨轮自转），平移方向随云台朝向（δ 每 1 ms 更新）。
+- ✅ 自转限幅下调（2026-11-15）：分离模式 `kMaxW` 6.0→**3.0 rad/s**（与小陀螺一致）；小陀螺 `kSpinWMax` 6.0→3.0→**2.0 rad/s**（云台仍跟不上，逐级降）；小陀螺支持**边旋转边平移**（左摇杆平移 + 拨轮自转），平移方向随云台朝向（δ 每 1 ms 更新）。
 
 ## 调试开关与已知限制
 
@@ -94,10 +94,10 @@ cmake --build --preset Debug -j 8
 
 | 板 | 编译单元 | 结果 | text | data | bss | ELF |
 | --- | --- | --- | --- | --- | --- | --- |
-| Chassis | 677 | 0 error / 0 warning | 65,032 B | 288 B | 8,504 B | 2,409,564 B |
+| Chassis | 677 | 0 error / 0 warning | 65,028 B | 288 B | 8,504 B | 2,409,568 B |
 | Gimbal | 678 | 0 error / 0 warning | 66,008 B | 120 B | 8,200 B | 2,363,436 B |
 
-固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x20261137`（539365687）、云台 `g_dbg_fw_tag = 0x20261136`（539365686）。
+固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x20261138`（539365688）、云台 `g_dbg_fw_tag = 0x20261136`（539365686）。
 
 无硬件自测：底盘主机 harness `D:\rm\task8_selftest\test_logic.exe`（76/76 PASS）；云台 `gimbal_math.hpp` 15 条 `static_assert` 随构建验证。
 

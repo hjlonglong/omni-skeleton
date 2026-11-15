@@ -115,8 +115,8 @@ inline constexpr float kWheelDeadZone = 0.10f;
 
 /* ---- 速度限幅（云台系）---- */
 inline constexpr float kMaxVxVy = 1.5f;         ///< m/s，平移速度限幅
-inline constexpr float kMaxW = 6.0f;            ///< rad/s，分离模式拨轮自转限幅
-inline constexpr float kSpinWMax = 3.0f;        ///< rad/s，小陀螺自转限幅（2026-11-15：6.0→3.0 减半，给云台世界稳定留跟踪余量）
+inline constexpr float kMaxW = 3.0f;            ///< rad/s，分离模式拨轮自转限幅（2026-11-15：6.0→3.0 减半，与小陀螺一致）
+inline constexpr float kSpinWMax = 2.0f;        ///< rad/s，小陀螺自转限幅（2026-11-15：3.0→2.0，再降 2/3，给云台跟踪余量）
 /* 跟随环输出限幅（2026-11-11 提高：原 3 → 6，允许快速追上云台；与自转限幅同量级） */
 inline constexpr float kFollowWMax = 6.0f;      ///< rad/s，跟随环输出限幅
 /* 跟随死区（2026-11-11 二次收紧：0.02 → 0.005 rad≈0.3°。原 0.02 rad 硬死区让底盘
