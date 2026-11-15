@@ -33,6 +33,11 @@ extern "C" {
 __attribute__((used)) volatile uint16_t g_dbg_rc_wheel_raw = 1024u;
 __attribute__((used)) volatile uint16_t g_dbg_rc_wheel_v16 = 1024u;
 __attribute__((used)) volatile int32_t g_dbg_rc_wheel_unwrapped = 0;
+/* 拨轮回中异常诊断：每帧记录 11 位原值与展开值（32 深环形缓冲，写指针 g_dbg_rc_wheel_log_idx）。 */
+#define kRcWheelLogLen 32u
+__attribute__((used)) volatile uint16_t g_dbg_rc_wheel_raw_log[kRcWheelLogLen] = {0};
+__attribute__((used)) volatile int32_t g_dbg_rc_wheel_unwrapped_log[kRcWheelLogLen] = {0};
+__attribute__((used)) volatile uint8_t g_dbg_rc_wheel_log_idx = 0;
 }
 
 /* Exported function definitions ---------------------------------------------*/
@@ -66,12 +71,13 @@ void DT7::decode(const uint8_t rx_data[kRcRxDataLen])
   g_dbg_rc_wheel_v16 = v16;  /* 未截断 16 位原值（诊断） */
   const int32_t wheel11 = static_cast<int32_t>(v16 & 0x07FFu);  /* 11 位 ch4 */
   g_dbg_rc_wheel_raw = static_cast<uint16_t>(wheel11);
+  int32_t d = 0;
   if (!wheel_inited_) {
     wheel_raw13_ = static_cast<uint16_t>(wheel11);
     wheel_unwrapped_ = 0;
     wheel_inited_ = true;
   } else {
-    int32_t d = wheel11 - static_cast<int32_t>(wheel_raw13_);
+    d = wheel11 - static_cast<int32_t>(wheel_raw13_);
     if (d > kWheelWrapHalf) {
       d -= kWheelMod;  /* 11 位正向回绕（0 → 2047 方向） */
     } else if (d < -kWheelWrapHalf) {
@@ -79,6 +85,12 @@ void DT7::decode(const uint8_t rx_data[kRcRxDataLen])
     }
     wheel_raw13_ = static_cast<uint16_t>(wheel11);
     wheel_unwrapped_ += d;
+    /* 中位复位：拨轮带弹簧回中，进入中位窗口即视为回中（展开值归零）。
+     * 2026-11-15 实车：松手回中途中展开值跳到 -1387 并持续自转，先加此复位兜底；
+     * 若回中仍异常，用下方环形日志定位真实 raw 轨迹。 */
+    if (wheel11 >= (1024 - 40) && wheel11 <= (1024 + 40)) {
+      wheel_unwrapped_ = 0;
+    }
     if (wheel_unwrapped_ > kWheelSpanPos) {
       wheel_unwrapped_ = kWheelSpanPos;
     } else if (wheel_unwrapped_ < -kWheelSpanNeg) {
@@ -89,6 +101,10 @@ void DT7::decode(const uint8_t rx_data[kRcRxDataLen])
                   ? static_cast<float>(wheel_unwrapped_) / static_cast<float>(kWheelSpanPos)
                   : static_cast<float>(wheel_unwrapped_) / static_cast<float>(kWheelSpanNeg);
   g_dbg_rc_wheel_unwrapped = wheel_unwrapped_;
+  g_dbg_rc_wheel_raw_log[g_dbg_rc_wheel_log_idx] = static_cast<uint16_t>(wheel11);
+  g_dbg_rc_wheel_unwrapped_log[g_dbg_rc_wheel_log_idx] = wheel_unwrapped_;
+  g_dbg_rc_wheel_log_idx =
+      static_cast<uint8_t>((g_dbg_rc_wheel_log_idx + 1u) % kRcWheelLogLen);
 
   /* 拨杆位域（DBUS 第 5 字节高半字节）：bit4-5 = s2，bit6-7 = s1。
    * 2026-11-11 实物复核（用户）：物理**左**拨杆对应 bit6-7、右拨杆对应 bit4-5，
