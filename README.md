@@ -16,7 +16,7 @@
 | DBUS 遥控（DR16） | ✅ | `inc/DT7.hpp`、`src/DT7.cpp`、`Task/component/comm_task.cpp`、`Instance/component/ins_comm.cpp` | USART3 空闲+DMA 收 18 B（`HAL_UARTEx_RxEventCallback`）；死区/限幅/通道映射见契约 §7.1；>100 ms 判离线 |
 | 三态状态机 | ✅ | `Chassis/RobotModules/component/robot.cpp`、`Gimbal/RobotModules/component/robot.cpp` | Dead / Resurrection / Working；急停最外层；任一条安全条件丢失立即回 Dead 并零输出 |
 | O 型全向轮运动学 | ✅ | `Chassis/inc/chassis_ik_solver.hpp`、`Chassis/RobotModules/component/chassis.cpp` | 云台系速度 → δ 旋转 → 车体系 → 4 轮逆解 → 轮速环；安装角/几何/符号为可配常量（默认值待实车标定） |
-| 底盘三模式 | ✅ | `Chassis/RobotModules/component/robot.cpp` | 分离（自转取拨轮）/ 跟随（云台 δ 跟随 PID）/ 小陀螺（平移方向仍随云台）；左拨杆切换，30 ms 去抖 |
+| 底盘三模式 | ✅ | `Chassis/RobotModules/component/robot.cpp` | 分离（自转取拨轮）/ 跟随（云台 δ 跟随 PID）/ 小陀螺（平移方向仍随云台，**支持边旋转边平移**：左摇杆平移 + 拨轮自转同时生效）；左拨杆切换，30 ms 去抖 |
 | 云台两轴控制 | ✅ | `Gimbal/RobotModules/component/gimbal.cpp`、`Gimbal/RobotModules/component/robot.cpp` | yaw 世界目标 − 底盘 IMU yaw → 关节目标；pitch 软限位 [-0.35, +0.55] rad；位置环 → 速度环 → DM MIT 力矩 |
 | DM-J4310 收发 | ✅ | `Gimbal/inc/motor_DaMiao.hpp`、`Gimbal/src/motor_DaMiao.cpp`、`Gimbal/src/HW_can.cpp` | yaw=CAN1、pitch=CAN2 反馈解码；MIT 纯力矩 `setMitInput(0,0,0,0,τ)`；已修 CAN2SB 滤波组缺陷 |
 | 双板通讯帧 | ✅ | `RobotComponents/component/gimbal_chassis_comm.*`、两板 `Task/component/comm_task.cpp`、`src/HW_can.cpp` | C2G 0x210 / G2C 0x211，8 字节大端；**走两板物理相连的 CAN1，周期 1 ms（`kInterboardPeriodMs`）**；v1.1：C2G b2-3=云台期望世界 yaw、b4-5=期望 pitch；`isOffline()` 100 ms |
@@ -39,7 +39,8 @@
 - 🟡 无硬件自测：底盘主机 harness 76/76 PASS（DT7 解码、三态机、三模式、δ、逆解、帧往返、集成序列）；云台 15 条编译期 `static_assert`；两板 L0 0 error / 0 warning。
 - ⛔ 待标定（`TODO(硬件)`）：轮安装角/方向/几何（`kXxxMountAngleRad`/`kWheelSign`/`kWheelDir`）、`kDeltaSign` 实车确认、DM 方向/PMAX 核对、PID 实车整定。
 - ✅ 云台 yaw 机械零位：以实车校准点为准——**云台正对车头时 `g_dbg_dm_angle[0] ≈ 0`**，已预置 `kYawAngleOffset = -1.3340f`（上电读数 ≈ +1.334，正对车头 ≈ 0，跟随模式 7° 残差随之消除）；若正对车头读数 R≠0，按 `kYawAngleOffset += R` 再校（契约 D-9）。
-- ✅ 跟随/小陀螺实车修正（2026-11-11）：跟随环 Kp/Kd/LPF/死区已二次整定（提高阻尼、消除死区边界震荡）；`kYawRateMax` 2.5→8.0 rad/s，使小陀螺（底盘自转 ≤6 rad/s）时云台仍能世界稳定、不被底盘拖着转。
+- ✅ 跟随/小陀螺实车修正（2026-11-11）：跟随环 Kp/Kd/LPF/死区已二次整定（提高阻尼、消除死区边界震荡）；`kYawRateMax` 2.5→8.0 rad/s，使小陀螺时云台仍能世界稳定、不被底盘拖着转。
+- ✅ 小陀螺自转限幅减半（2026-11-15）：`kSpinWMax` 6.0→**3.0 rad/s**（云台仍跟不上实车反馈）；小陀螺支持**边旋转边平移**（左摇杆平移 + 拨轮自转），平移方向随云台朝向（δ 每 1 ms 更新）。
 
 ## 调试开关与已知限制
 
@@ -89,14 +90,14 @@ cmake --build --preset Debug -j 8
 > 也可不用 preset，直接 `cmake -S . -B build -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$PWD/cmake/gcc-arm-none-eabi.cmake" -DCMAKE_BUILD_TYPE=Debug`；`-DCMAKE_TOOLCHAIN_FILE` 必须为绝对路径。
 > ELF 固定输出到 `<板>/build/omni_<board>.elf`，可用 Ozone（SWD 4 MHz）加载。
 
-基线（2026-11-11，yaw 零位 97° + 跟随阻尼 + 小陀螺稳定版，`TEST_MODE=0` 交付态，Debug 全量构建）：
+基线（2026-11-15，yaw 校准点 + 跟随阻尼 + 小陀螺限幅减半版，`TEST_MODE=0` 交付态，Debug 全量构建）：
 
 | 板 | 编译单元 | 结果 | text | data | bss | ELF |
 | --- | --- | --- | --- | --- | --- | --- |
 | Chassis | 677 | 0 error / 0 warning | 65,032 B | 288 B | 8,504 B | 2,409,564 B |
 | Gimbal | 678 | 0 error / 0 warning | 66,008 B | 120 B | 8,200 B | 2,363,436 B |
 
-固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x20261135`（539365685）、云台 `g_dbg_fw_tag = 0x20261136`（539365686）。
+固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x20261137`（539365687）、云台 `g_dbg_fw_tag = 0x20261136`（539365686）。
 
 无硬件自测：底盘主机 harness `D:\rm\task8_selftest\test_logic.exe`（76/76 PASS）；云台 `gimbal_math.hpp` 15 条 `static_assert` 随构建验证。
 
