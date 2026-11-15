@@ -42,6 +42,7 @@
 - ✅ 跟随/小陀螺实车修正（2026-11-11）：跟随环 Kp/Kd/LPF/死区已二次整定（提高阻尼、消除死区边界震荡）；`kYawRateMax` 2.5→8.0 rad/s，使小陀螺时云台仍能世界稳定、不被底盘拖着转。
 - ✅ 自转限幅下调（2026-11-15）：分离模式 `kMaxW` 6.0→**3.0 rad/s**（与小陀螺一致）；小陀螺 `kSpinWMax` 6.0→3.0→**2.0 rad/s**（云台仍跟不上，逐级降）；小陀螺支持**边旋转边平移**（左摇杆平移 + 拨轮自转），平移方向随云台朝向（δ 每 1 ms 更新）。
 - ✅ 拨轮死区增大（2026-11-15）：`kWheelDeadZone` 0.10→**0.20**——拨轮快速拨动后弹簧回中过冲越过中位，过冲量 >0.1，表现为“先按拨动方向转一点、随后反向自转”；死区吃掉回弹（死区外仍线性重标定到满量程）。
+- ✅ 拨轮顺时针分段编码（2026-11-15，按用户指定）：顺时针（展开值 >0）改用 16 位原值 `v16` 分段——`v16∈[1024, 2048]` 线性加快（0→1），`v16 > 2048` 维持满速 **1.0**；逆时针保持原有 11 位展开编码（0→−1）；两板同源。
 
 ## 调试开关与已知限制
 
@@ -91,19 +92,19 @@ cmake --build --preset Debug -j 8
 > 也可不用 preset，直接 `cmake -S . -B build -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$PWD/cmake/gcc-arm-none-eabi.cmake" -DCMAKE_BUILD_TYPE=Debug`；`-DCMAKE_TOOLCHAIN_FILE` 必须为绝对路径。
 > ELF 固定输出到 `<板>/build/omni_<board>.elf`，可用 Ozone（SWD 4 MHz）加载。
 
-基线（2026-11-15，yaw 校准点 + 跟随阻尼 + 小陀螺限幅减半 + 拨轮 11 位回绕解码版，`TEST_MODE=0` 交付态，Debug 全量构建）：
+基线（2026-11-15，yaw 校准点 + 跟随阻尼 + 小陀螺限幅减半 + 拨轮 11 位回绕解码 + 顺时针 v16 分段编码版，`TEST_MODE=0` 交付态，Debug 全量构建）：
 
 | 板 | 编译单元 | 结果 | text | data | bss | ELF |
 | --- | --- | --- | --- | --- | --- | --- |
-| Chassis | 677 | 0 error / 0 warning | 65,464 B | 304 B | 8,712 B | 2,411,452 B |
+| Chassis | 677 | 0 error / 0 warning | 65,524 B | 304 B | 8,712 B | 2,411,496 B |
 | Gimbal | 678 | 0 error / 0 warning | 66,008 B | 120 B | 8,200 B | 2,363,436 B |
 
-固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x20261140`（539365696）、云台 `g_dbg_fw_tag = 0x2026113B`（539365691）。
+固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x20261141`（539365697）、云台 `g_dbg_fw_tag = 0x2026113C`（539365692）。
 
 无硬件自测：底盘主机 harness `D:\rm\task8_selftest\test_logic.exe`（76/76 PASS）；云台 `gimbal_math.hpp` 15 条 `static_assert` 随构建验证。
 
 Ozone 可观测调试变量：
-- 底盘全局：`g_dbg_life_state/mode/source/estop/remote_online/imu_ready/peer_online`、`g_dbg_delta_rad`/`g_dbg_delta_deg`（δ，C 链接镜像，Ozone 直接输名字即可；`g_dbg_delta` 为内部链接同名量）、`g_dbg_follow_w`、`g_dbg_target_vx/vy/w`、`g_dbg_wheel_dz`、`g_dbg_rc_wheel_raw`（拨轮 11 位原值，中位=1024；顺时针到底 1907、逆时针到底 1684）、`g_dbg_rc_wheel_v16`（未截断 16 位原值）、`g_dbg_rc_wheel_unwrapped`（11 位增量展开位移 counts：顺时针到底 +883、逆时针到底 −1387；中位锁存带 25/140 counts 回差，回中后锁 0、离开超过 140 才重新计，避免弹簧回中振荡反复归零/上升）、`g_dbg_rc_wheel_raw_log[32]`/`g_dbg_rc_wheel_unwrapped_log[32]`（每帧原始/展开值环形日志，`g_dbg_rc_wheel_log_idx` 为下一个写位置，用于回中异常诊断）、`g_dbg_yaw_target`/`g_dbg_pitch_target`、`g_dbg_rc_lv/lh/rv/rh/wheel/l_switch/r_switch`、`g_dbg_wheel_vel/curr/input/angle/temp[4]`、`g_dbg_wheel_target/actual/out[4]`、`g_dbg_wheel_tx_cnt`/`g_dbg_c2g_tx_cnt`、`g_can_wheel_rx_cnt[4]`、`g_can_wheel_unknown_cnt`、`g_can1_unknown_cnt`、`g_can_g2c_rx_cnt`、`g_dbg_dbus_*`；
+- 底盘全局：`g_dbg_life_state/mode/source/estop/remote_online/imu_ready/peer_online`、`g_dbg_delta_rad`/`g_dbg_delta_deg`（δ，C 链接镜像，Ozone 直接输名字即可；`g_dbg_delta` 为内部链接同名量）、`g_dbg_follow_w`、`g_dbg_target_vx/vy/w`、`g_dbg_wheel_dz`、`g_dbg_rc_wheel_raw`（拨轮 11 位原值，中位=1024；顺时针到底 1907、逆时针到底 1684）、`g_dbg_rc_wheel_v16`（未截断 16 位原值）、`g_dbg_rc_wheel_unwrapped`（11 位增量展开位移 counts：顺时针到底 +883、逆时针到底 −1387；顺时针输出按 v16 分段（1024→2048 线性、>2048 满速），逆时针按 span 1387 归一；中位锁存带 25/140 counts 回差，回中后锁 0、离开超过 140 才重新计，避免弹簧回中振荡反复归零/上升）、`g_dbg_rc_wheel_raw_log[32]`/`g_dbg_rc_wheel_unwrapped_log[32]`（每帧原始/展开值环形日志，`g_dbg_rc_wheel_log_idx` 为下一个写位置，用于回中异常诊断）、`g_dbg_yaw_target`/`g_dbg_pitch_target`、`g_dbg_rc_lv/lh/rv/rh/wheel/l_switch/r_switch`、`g_dbg_wheel_vel/curr/input/angle/temp[4]`、`g_dbg_wheel_target/actual/out[4]`、`g_dbg_wheel_tx_cnt`/`g_dbg_c2g_tx_cnt`、`g_can_wheel_rx_cnt[4]`、`g_can_wheel_unknown_cnt`、`g_can1_unknown_cnt`、`g_can_g2c_rx_cnt`、`g_dbg_dbus_*`；
 - 云台：`robot::robot_debug::{life_state,safety_ok,c2g_online,c2g_remote_online,c2g_estop,c2g_yaw_target,c2g_pitch_target,c2g_chassis_imu_yaw}`、`g_dbg_dm_vel/curr/torq/angle/input/enabled/status_code[2]`、`g_dbg_can1_tx_cnt`/`g_dbg_can2_tx_cnt`/`g_dbg_g2c_tx_cnt`、`g_can_yaw_fdb_cnt`/`g_can_pitch_fdb_cnt`/`g_can_c2g_rx_cnt`。
 
 > 提示：云台目标为**世界系 yaw**（v1.1 语义），转动底盘时云台会反向补偿保持指向（T2 待验证项，属预期设计）。

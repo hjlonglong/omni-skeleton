@@ -116,9 +116,22 @@ void DT7::decode(const uint8_t rx_data[kRcRxDataLen])
       wheel_unwrapped_ = -kWheelSpanNeg;
     }
   }
-  rc_wheel_ = (wheel_unwrapped_ >= 0)
-                  ? static_cast<float>(wheel_unwrapped_) / static_cast<float>(kWheelSpanPos)
-                  : static_cast<float>(wheel_unwrapped_) / static_cast<float>(kWheelSpanNeg);
+  /* 拨轮输出编码（2026-11-15 用户指定分段，2026-11-15 追加）：
+   * 顺时针（展开值 > 0）：按 16 位原值 v16 分段——v16 在 [1024, 2048] 之间线性加快
+   *   （0 → 1），v16 > 2048 后维持满速 1.0（顺时针物理行程可到 8051，不再继续增大）；
+   * 逆时针：保持原有编码（展开值 / kWheelSpanNeg，0 → -1）。 */
+  if (wheel_unwrapped_ > 0) {
+    const int32_t ramp = static_cast<int32_t>(v16) - 1024;
+    float t = static_cast<float>(ramp) / 1024.0f;
+    if (t < 0.0f) {
+      t = 0.0f;
+    } else if (t > 1.0f) {
+      t = 1.0f;
+    }
+    rc_wheel_ = t;
+  } else {
+    rc_wheel_ = static_cast<float>(wheel_unwrapped_) / static_cast<float>(kWheelSpanNeg);
+  }
   g_dbg_rc_wheel_unwrapped = wheel_unwrapped_;
   g_dbg_rc_wheel_raw_log[g_dbg_rc_wheel_log_idx] = static_cast<uint16_t>(wheel11);
   g_dbg_rc_wheel_unwrapped_log[g_dbg_rc_wheel_log_idx] = wheel_unwrapped_;
