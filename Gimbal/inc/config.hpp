@@ -88,7 +88,7 @@ inline constexpr float kPitchTorqueMax = 2.5f; ///< N·m，pitch 力矩限幅（
 inline constexpr float kPitchLimitMargin = 0.10f;  ///< rad，pitch 反馈越限裕度（状态机故障判定）
 
 /* ---- 云台位置环 PID 初值（输入角度误差 rad，输出目标关节速度 rad/s）---- */
-inline constexpr float kPidYawAngleKp = 12.0f;   ///< 2026-11-15 8→12：配合速率前馈，进一步压低斜坡跟踪误差
+inline constexpr float kPidYawAngleKp = 10.0f;   ///< 2026-11-15 8→12→10：配合速率前馈；跟随模式低速摆动时可再降
 inline constexpr float kPidYawAngleKi = 0.0f;    ///< TODO(调参)
 inline constexpr float kPidYawAngleKd = 0.0f;    ///< TODO(调参)
 inline constexpr float kPidPitchAngleKp = 8.0f;  ///< TODO(调参)

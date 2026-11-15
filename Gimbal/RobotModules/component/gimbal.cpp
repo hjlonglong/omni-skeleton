@@ -41,6 +41,7 @@ volatile float pitch_joint = 0.0f;
 volatile float pitch_torque = 0.0f;
 volatile float chassis_yaw_rate = 0.0f;
 volatile float yaw_vel_ff = 0.0f;
+volatile float world_yaw_est = 0.0f;
 volatile uint32_t cycle_count = 0;
 }  // namespace gimbal_debug
 
@@ -152,9 +153,11 @@ void Gimbal::update()
   const float yaw_joint_target =
       gimbal_math::YawJointTarget(yaw_world_target_, chassis_yaw_);
 
-  /* 2.1 底盘 yaw 速率前馈（2026-11-15）：差分 C2G 底盘 yaw（1e-3 rad 量化）并 LPF，
+  /* 2.1 底盘 yaw 速率前馈（2026-11-15）：差分 C2G 底盘 yaw（1e-3 rad 量化）并强低通，
    *     反向叠加到关节速度目标。小陀螺底盘自转 ~3 rad/s 时，纯位置环会有
-   *     “角速度/Kp”的稳态滞后；前馈直接给出所需的关节反向速度，云台不再被拖着转。 */
+   *     “角速度/Kp”的稳态滞后；前馈直接给出所需的关节反向速度，云台不再被拖着转。
+   *     跟随模式下底盘是“缓慢转动去对齐云台”，前馈负责让云台真正世界固定；量化
+   *     差分噪声用 α=0.06（τ≈16 ms）强低通 + 0.08 rad/s 死区抑制，避免低速摆动。 */
   if (!chassis_yaw_inited_) {
     prev_chassis_yaw_ = chassis_yaw_;
     chassis_yaw_inited_ = true;
@@ -162,9 +165,11 @@ void Gimbal::update()
   const float yaw_rate_raw =
       gimbal_math::WrapPi(chassis_yaw_ - prev_chassis_yaw_) / config::kTs;
   prev_chassis_yaw_ = chassis_yaw_;
+  const float yaw_rate_cmd =
+      ((yaw_rate_raw > -0.08f) && (yaw_rate_raw < 0.08f)) ? 0.0f : yaw_rate_raw;
   chassis_yaw_rate_ = gimbal_math::ClampValue(
-      chassis_yaw_rate_ * 0.85f + yaw_rate_raw * 0.15f, -config::kYawRateMax,
-      config::kYawRateMax);
+      chassis_yaw_rate_ * (1.0f - 0.06f) + yaw_rate_cmd * 0.06f,
+      -config::kYawRateMax, config::kYawRateMax);
   const float yaw_vel_ff = -chassis_yaw_rate_;
 
   /* 3. yaw 位置环：把关节反馈幂等到目标分支后进 PID（误差 = 最短路径 wrap） */
@@ -202,6 +207,8 @@ void Gimbal::update()
   gimbal_debug::yaw_torque = yaw_torque;
   gimbal_debug::chassis_yaw_rate = chassis_yaw_rate_;
   gimbal_debug::yaw_vel_ff = yaw_vel_ff;
+  gimbal_debug::world_yaw_est =
+      gimbal_math::WrapPi(chassis_yaw_ + yaw_joint);
   gimbal_debug::pitch_target = pitch_target;
   gimbal_debug::pitch_joint = pitch_joint;
   gimbal_debug::pitch_torque = pitch_torque;
