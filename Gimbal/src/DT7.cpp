@@ -66,6 +66,8 @@ void DT7::decode(const uint8_t rx_data[kRcRxDataLen])
   static constexpr int32_t kWheelWrapHalf = 1024;   ///< 回绕判定阈值（11 位半量程）
   static constexpr int32_t kWheelSpanPos = 883;     ///< 顺时针到底 +883 counts（实测）
   static constexpr int32_t kWheelSpanNeg = 1387;    ///< 逆时针到底 -1387 counts（实测，经 2048 回绕）
+  static constexpr int32_t kWheelDetentIn = 25;     ///< 中位锁存进入阈值（|raw-1024|，counts）
+  static constexpr int32_t kWheelDetentOut = 140;   ///< 中位锁存离开阈值（counts，对应 rc≈0.16 < 死区 0.20）
 
   const uint16_t v16 = static_cast<uint16_t>(rx_data[16] | (rx_data[17] << 8));
   g_dbg_rc_wheel_v16 = v16;  /* 未截断 16 位原值（诊断） */
@@ -75,6 +77,10 @@ void DT7::decode(const uint8_t rx_data[kRcRxDataLen])
   if (!wheel_inited_) {
     wheel_raw13_ = static_cast<uint16_t>(wheel11);
     wheel_unwrapped_ = 0;
+    {
+      const int32_t err = wheel11 - 1024;
+      wheel_in_detent_ = ((err >= 0 ? err : -err) <= kWheelDetentOut);
+    }
     wheel_inited_ = true;
   } else {
     d = wheel11 - static_cast<int32_t>(wheel_raw13_);
@@ -85,11 +91,24 @@ void DT7::decode(const uint8_t rx_data[kRcRxDataLen])
     }
     wheel_raw13_ = static_cast<uint16_t>(wheel11);
     wheel_unwrapped_ += d;
-    /* 中位复位：拨轮带弹簧回中，进入中位窗口即视为回中（展开值归零）。
-     * 2026-11-15 实车：松手回中途中展开值跳到 -1387 并持续自转，先加此复位兜底；
-     * 若回中仍异常，用下方环形日志定位真实 raw 轨迹。 */
-    if (wheel11 >= (1024 - 40) && wheel11 <= (1024 + 40)) {
-      wheel_unwrapped_ = 0;
+    /* 中位磁滞锁存：拨轮带弹簧回中，回中过程中会在中位附近振荡；
+     * 硬复位会在窗口边缘抖动时反复“归零再上升”（2026-11-15 实车：顺时针侧出现三次）。
+     * 改为回差锁存：|raw-中位| <= 25 进入中位（展开值锁 0），> 140 才离开中位
+     * （140/883≈0.16，仍落在拨轮死区 0.20 内，不会产生可见转动）。 */
+    {
+      const int32_t err = wheel11 - 1024;  /* 相对 11 位中位 */
+      const int32_t err_abs = (err >= 0) ? err : -err;
+      if (wheel_in_detent_) {
+        if (err_abs > kWheelDetentOut) {
+          wheel_in_detent_ = false;
+          wheel_unwrapped_ = err;  /* 离开中位时以绝对偏差重新锚定 */
+        } else {
+          wheel_unwrapped_ = 0;
+        }
+      } else if (err_abs <= kWheelDetentIn) {
+        wheel_in_detent_ = true;
+        wheel_unwrapped_ = 0;
+      }
     }
     if (wheel_unwrapped_ > kWheelSpanPos) {
       wheel_unwrapped_ = kWheelSpanPos;
