@@ -45,6 +45,7 @@ constexpr int kWheelNum = config::kWheelNum;
  *   g_dbg_safe_ok      遥控在线且无急停
  *   g_dbg_remote_online / g_dbg_estop / g_dbg_imu_ready / g_dbg_peer_online
  *   g_dbg_delta        δ（rad，G2C 关节角换算）
+ *   g_dbg_delta_rad / g_dbg_delta_deg  δ 的 C 链接镜像（Ozone 直接输入变量名即可）
  *   g_dbg_follow_w     跟随环输出 w（rad/s）
  *   g_dbg_target_vx/vy/w  本拍下发到 Chassis 的云台系目标速度
  *   g_dbg_yaw_target / g_dbg_pitch_target  C2G 里的云台目标角（v1.1）
@@ -67,6 +68,14 @@ volatile float g_dbg_yaw_target = 0.0f;
 volatile float g_dbg_pitch_target = 0.0f;
 volatile float g_dbg_wheel_dz = 0.0f;  ///< 拨轮死区重标定后的值（诊断小陀螺方向）
 }  // namespace
+
+/* Ozone 直连镜像（C 链接、全局可见）：上述匿名命名空间里的符号在 Ozone 的 Watch/
+ * Graph 里按源码名解析时可能失败（内部链接/作用域名），这里额外提供普通全局变量，
+ * 在 Ozone 的 Live Watch 中直接输入变量名即可（无需加命名空间）。 */
+extern "C" {
+__attribute__((used)) volatile float g_dbg_delta_rad = 0.0f;  ///< δ（rad）
+__attribute__((used)) volatile float g_dbg_delta_deg = 0.0f;  ///< δ（deg，= rad × 180/π）
+}
 
 /* Private function definitions ----------------------------------------------*/
 namespace
@@ -319,6 +328,8 @@ void robot::Robot::updateDebugMirrors() const
   g_dbg_imu_ready = static_cast<uint8_t>(imu_ready_);
   g_dbg_peer_online = static_cast<uint8_t>(peer_online_);
   g_dbg_delta = delta_;
+  g_dbg_delta_rad = delta_;
+  g_dbg_delta_deg = delta_ * 57.2957795131f;  /* rad → deg（180/π） */
   g_dbg_follow_w = follow_w_;
   g_dbg_yaw_target = gimbal_yaw_target_;
   g_dbg_pitch_target = gimbal_pitch_target_;
