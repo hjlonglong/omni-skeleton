@@ -31,6 +31,7 @@ static const float kRcRatio = 1.0f / 660;
  */
 extern "C" {
 __attribute__((used)) volatile uint16_t g_dbg_rc_wheel_raw = 1024u;
+__attribute__((used)) volatile uint16_t g_dbg_rc_wheel_v16 = 1024u;
 }
 
 /* Exported function definitions ---------------------------------------------*/
@@ -52,6 +53,7 @@ void DT7::decode(const uint8_t rx_data[kRcRxDataLen])
    * 间乱跳"）。2026-11-08 修正。 */
   tmp = (rx_data[16] | (rx_data[17] << 8)) & 0x07FF;
   g_dbg_rc_wheel_raw = tmp;  /* 原始 11 位值（诊断“拨到底反向”用，中位=1024） */
+  g_dbg_rc_wheel_v16 = static_cast<uint16_t>(rx_data[16] | (rx_data[17] << 8));  /* 未截断的 16 位原值 */
   rc_wheel_ = (tmp - kRcOffset) * kRcRatio;
 
   /* 拨杆位域（DBUS 第 5 字节高半字节）：bit4-5 = s2，bit6-7 = s1。
