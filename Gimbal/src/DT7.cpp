@@ -49,31 +49,35 @@ void DT7::decode(const uint8_t rx_data[kRcRxDataLen])
   rc_lh_ = (tmp - kRcOffset) * kRcRatio;
   tmp = ((rx_data[4] >> 1) | (rx_data[5] << 7)) & 0x07FF;
   rc_lv_ = (tmp - kRcOffset) * kRcRatio;
-  /* 拨轮：该接收机实际为 13 位编码（2026-11-15 实测 raw[17] 最大 31）。
-   * 中位 = 1024=0x0400；顺时针到底 = 0x1F73=8051（+7027 counts）；
-   * 逆时针到底 = 0x0694=1684，即 (1024-7531) mod 8192（跨 0 回绕）。
-   * 旧实现 &0x07FF 只保留 11 位，8000+ 的值会截成 0~2047 的锯齿，
-   * 于是“拨到高段”被算成负值 → 满量程反向。这里改为 13 位增量展开。 */
-  static constexpr int32_t kWheelSpanPos = 7027;  ///< 顺时针到底 counts（实测，TODO(硬件) 复核）
-  static constexpr int32_t kWheelSpanNeg = 7531;  ///< 逆时针到底 counts（实测，TODO(硬件) 复核）
-  static constexpr int32_t kWheelWrapHalf = 4096;  ///< 13 位半量程（回绕判定阈值）
+  /* 拨轮：该接收机 ch4 是 **11 位字段**（v16 的低 11 位），但电位器机械行程比 11 位量程大，
+   * 2026-11-15 实测（raw16/raw17）：中位 1024；顺时针到底 1907（+883）；
+   * 逆时针到底 1684 —— 是“从中位向下穿过 0 回绕”后到达的：展开位移
+   * = -(1024 + (2047-1684)) = -1387，而不是 1684-1024=+660。
+   * 之前按 13 位（模 8192）判回绕，0→2047 的跳变被当成 +2047，于是逆时针方向反掉，
+   * 且幅度 660/7531=0.088 又落进拨轮死区 → 表现为“逆时针不转”。
+   * 这里改为 11 位（模 2048、半量程 1024）增量展开，再按实测两侧行程归一化：
+   * 顺时针 +883 → +1.0，逆时针 -1387 → -1.0。 */
+  static constexpr int32_t kWheelMod = 2048;        ///< 11 位字段模数
+  static constexpr int32_t kWheelWrapHalf = 1024;   ///< 回绕判定阈值（11 位半量程）
+  static constexpr int32_t kWheelSpanPos = 883;     ///< 顺时针到底 +883 counts（实测）
+  static constexpr int32_t kWheelSpanNeg = 1387;    ///< 逆时针到底 -1387 counts（实测，经 2048 回绕）
 
   const uint16_t v16 = static_cast<uint16_t>(rx_data[16] | (rx_data[17] << 8));
-  g_dbg_rc_wheel_v16 = v16;                    /* 未截断 16 位原值（诊断） */
-  const uint16_t v13 = static_cast<uint16_t>(v16 & 0x1FFFu);  /* 13 位编码值 */
-  g_dbg_rc_wheel_raw = v13;                    /* 13 位原始值（诊断） */
+  g_dbg_rc_wheel_v16 = v16;  /* 未截断 16 位原值（诊断） */
+  const int32_t wheel11 = static_cast<int32_t>(v16 & 0x07FFu);  /* 11 位 ch4 */
+  g_dbg_rc_wheel_raw = static_cast<uint16_t>(wheel11);
   if (!wheel_inited_) {
-    wheel_raw13_ = v13;
+    wheel_raw13_ = static_cast<uint16_t>(wheel11);
     wheel_unwrapped_ = 0;
     wheel_inited_ = true;
   } else {
-    int32_t d = static_cast<int32_t>(v13) - static_cast<int32_t>(wheel_raw13_);
+    int32_t d = wheel11 - static_cast<int32_t>(wheel_raw13_);
     if (d > kWheelWrapHalf) {
-      d -= 8192;  /* 13 位正向回绕 */
+      d -= kWheelMod;  /* 11 位正向回绕（0 → 2047 方向） */
     } else if (d < -kWheelWrapHalf) {
-      d += 8192;  /* 13 位负向回绕 */
+      d += kWheelMod;  /* 11 位负向回绕（2047 → 0 方向） */
     }
-    wheel_raw13_ = v13;
+    wheel_raw13_ = static_cast<uint16_t>(wheel11);
     wheel_unwrapped_ += d;
     if (wheel_unwrapped_ > kWheelSpanPos) {
       wheel_unwrapped_ = kWheelSpanPos;
