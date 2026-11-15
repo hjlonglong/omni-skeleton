@@ -24,6 +24,15 @@ namespace remote_control {
 static const uint16_t kRcOffset = 1024u;
 static const float kRcRatio = 1.0f / 660;
 
+/**
+ * Ozone 诊断镜像（C 链接全局符号）：拨轮通道的 11 位原始值（映射前，中位 = 1024）。
+ * 诊断“满量程反向”时看它在各位移下的单调性：若拨到底时该值回绕到 <1024（甚至 0），
+ * 则问题在接收机/帧（信号或通道压缩），不在本文件映射；否则是映射/符号问题。
+ */
+extern "C" {
+__attribute__((used)) volatile uint16_t g_dbg_rc_wheel_raw = 1024u;
+}
+
 /* Exported function definitions ---------------------------------------------*/
 
 void DT7::decode(const uint8_t rx_data[kRcRxDataLen])
@@ -42,6 +51,7 @@ void DT7::decode(const uint8_t rx_data[kRcRxDataLen])
    * 结果放大（实测 raw[17]=26 时 wheel 会算成 +8.6，现象是"拨轮数值在 -1~10
    * 间乱跳"）。2026-11-08 修正。 */
   tmp = (rx_data[16] | (rx_data[17] << 8)) & 0x07FF;
+  g_dbg_rc_wheel_raw = tmp;  /* 原始 11 位值（诊断“拨到底反向”用，中位=1024） */
   rc_wheel_ = (tmp - kRcOffset) * kRcRatio;
 
   /* 拨杆位域（DBUS 第 5 字节高半字节）：bit4-5 = s2，bit6-7 = s1。

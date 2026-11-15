@@ -80,7 +80,10 @@ inline constexpr float kPitchMax = 0.55f;    ///< rad，TODO(硬件)：抬头限
  * 手动遥控的摇杆速率上限仍由 kStickYawGain=2.5 决定，不受影响。 */
 inline constexpr float kYawRateMax = 8.0f;   ///< rad/s，yaw 关节速度限幅（小陀螺稳定需 ≥ 底盘自转）
 inline constexpr float kPitchRateMax = 1.5f; ///< rad/s，pitch 关节速度限幅
-inline constexpr float kYawTorqueMax = 3.0f;   ///< N·m，yaw 力矩限幅（安全）
+/* yaw 力矩限幅。2026-11-15 由 3.0 提高到 4.5：小陀螺（底盘 3 rad/s）时云台仍需
+ * 反向补偿，3.0 N·m 在跟随/自转叠加时不够 → 云台被底盘“拖着转”。DM-J4310-2EC
+ * 峰值力矩允许该值；若电机温度明显升高再回退。 */
+inline constexpr float kYawTorqueMax = 4.5f;   ///< N·m，yaw 力矩限幅（2026-11-15 3.0→4.5）
 inline constexpr float kPitchTorqueMax = 2.5f; ///< N·m，pitch 力矩限幅（安全）
 inline constexpr float kPitchLimitMargin = 0.10f;  ///< rad，pitch 反馈越限裕度（状态机故障判定）
 
