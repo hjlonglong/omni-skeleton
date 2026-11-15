@@ -59,6 +59,10 @@ extern volatile float pitch_torque;      ///< 本周期下发的 pitch MIT 力�
 extern volatile float chassis_yaw_rate;  ///< 底盘 yaw 角速度（rad/s，LPF 后，2026-11-15 前馈用）
 extern volatile float yaw_vel_ff;        ///< yaw 关节速度前馈（rad/s，=−底盘 yaw 速率）
 extern volatile float world_yaw_est;     ///< 世界 yaw 估计（rad）= chassis_yaw + yaw_joint，用于验证世界稳定
+extern volatile float yaw_err;           ///< yaw 位置误差（rad，WrapPi 后）
+extern volatile float yaw_vel_target;    ///< yaw 速度环目标（rad/s，位置环输出+前馈，已限幅）
+extern volatile float pitch_err;         ///< pitch 位置误差（rad）
+extern volatile float pitch_vel_target;  ///< pitch 速度环目标（rad/s，位置环输出，已限幅）
 extern volatile uint32_t cycle_count;    ///< update() 调用计数
 }  // namespace gimbal_debug
 

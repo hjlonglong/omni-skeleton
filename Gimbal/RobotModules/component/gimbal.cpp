@@ -42,6 +42,10 @@ volatile float pitch_torque = 0.0f;
 volatile float chassis_yaw_rate = 0.0f;
 volatile float yaw_vel_ff = 0.0f;
 volatile float world_yaw_est = 0.0f;
+volatile float yaw_err = 0.0f;
+volatile float yaw_vel_target = 0.0f;
+volatile float pitch_err = 0.0f;
+volatile float pitch_vel_target = 0.0f;
 volatile uint32_t cycle_count = 0;
 }  // namespace gimbal_debug
 
@@ -209,6 +213,10 @@ void Gimbal::update()
   gimbal_debug::yaw_vel_ff = yaw_vel_ff;
   gimbal_debug::world_yaw_est =
       gimbal_math::WrapPi(chassis_yaw_ + yaw_joint);
+  gimbal_debug::yaw_err = yaw_err;
+  gimbal_debug::yaw_vel_target = yaw_vel_target;
+  gimbal_debug::pitch_err = pitch_target - pitch_joint;
+  gimbal_debug::pitch_vel_target = pitch_vel_target;
   gimbal_debug::pitch_target = pitch_target;
   gimbal_debug::pitch_joint = pitch_joint;
   gimbal_debug::pitch_torque = pitch_torque;
