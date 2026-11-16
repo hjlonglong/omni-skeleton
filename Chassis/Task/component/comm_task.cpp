@@ -1,4 +1,4 @@
-﻿/**
+/**
  *******************************************************************************
  * @file      :comm_task.cpp
  * @brief     :底盘通讯任务：电机帧/双板帧 CAN 收发 + 遥控 DBUS 接收 + IWDG 喂狗
@@ -93,7 +93,7 @@ volatile float g_dbg_max_wheel_current = config::kMaxWheelCurrent;
  * 注意：必须 used+retain，否则未引用的全局会被 --gc-sections 删掉，Ozone 会把它
  * 解析到地址 0（读到 0x20020000 = 初始栈顶），从而"看起来烧错了固件"。
  * V1.2.2 起每次改接收逻辑都换 tag，用来区分板内固件与 ELF 是否一致。 */
-__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x2026114Au;
+__attribute__((used, retain)) volatile uint32_t g_dbg_fw_tag = 0x2026114Cu;
 volatile uint8_t g_dbg_dbus_last_evt = 0;  ///< 最近一次 UART 事件类型 0=HT 1=TC 2=IDLE
 volatile uint16_t g_dbg_dbus_last_size = 0; ///< 最近一次 UART 事件长度（正常 TC=18）
 /* 接收事件统计：判断帧对齐是否收敛；稳态下 TC 约 +70/秒（帧周期 ~14 ms），
@@ -150,7 +150,7 @@ void CommTaskInit(void) {
    *  - g_dbg_fw_tag 写回一次，保证它被引用而不会被 --gc-sections 删除；
    *  - g_dbg_dbus_raw 预填 0xEE：若 Ozone 里看到 0xEE 说明接收回调没有写这块内存
    *    （符号地址不匹配/回调没跑），若看到真实字节说明链路正常。 */
-  g_dbg_fw_tag = 0x2026114Au;
+  g_dbg_fw_tag = 0x2026114Cu;
   for (uint16_t i = 0; i < kRcRxLen; ++i) {
     g_dbg_dbus_raw[i] = 0xEEu;
   }

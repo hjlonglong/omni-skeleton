@@ -1,7 +1,7 @@
 # omni-skeleton — RoboMaster 全向轮步兵电控（双板）
 
 > 2026 赛季 RoboMaster 全向轮步兵电控工程，基于 Hello World 战队双板骨架二次开发：`Chassis/` 底盘板（RoboMaster C 型板）与 `Gimbal/` 云台板各一片 STM32F407IGH6，`RobotComponents/` 为两板共享代码。
-> 当前里程碑 **v1.2 实车联调**（2026-11-15）：双板完整控制链已实现，L2 硬件链路验证完成——DBUS（摇杆/拨杆/**拨轮 13 位连续展开（模 2048 回绕）**）、两板 IMU、CAN 分发（**4×M3508 接底盘板 CAN2**；云台 yaw=CAN1、pitch=CAN2）、**双板帧走 CAN1（1 ms）**、云台 yaw/pitch 遥控正常；2026-11-15 完成一轮实车闭环调参（小陀螺=分离同速、左右摇杆方向修正、yaw 底盘速率前馈 + pitch 目标速率前馈、调参镜像与跟随模式稳定加固）。待验证：T2 世界系增稳复测、T4/T5/T6/T7、pitch PID 整定、底盘整车运动，L3/L4 整机联调。
+> 当前里程碑 **v1.2 实车联调**（2026-11-16）：双板完整控制链已实现，L2 硬件链路验证完成——DBUS（摇杆/拨杆/**拨轮重叠带预测解码（两段编码基 + 速度预测消歧）**）、两板 IMU、CAN 分发（**4×M3508 接底盘板 CAN2**；云台 yaw=CAN1、pitch=CAN2）、**双板帧走 CAN1（1 ms）**、云台 yaw/pitch 遥控正常；2026-11-15 完成一轮实车闭环调参（小陀螺=分离同速、左右摇杆方向修正、yaw 底盘速率前馈 + pitch 目标速率前馈、调参镜像与跟随模式稳定加固），2026-11-16 完成分离模式取消拨轮自转、小陀螺自转 4.5 rad/s、拨轮第 4 版解码。待验证：T2 世界系增稳复测、T4/T5/T6/T7、pitch PID 整定、底盘整车运动，L3/L4 整机联调。
 
 ## 功能与实现文件
 
@@ -13,7 +13,7 @@
 | IMU 采集（BMI088 / SPI1） | ✅ | `inc/BMI088.hpp`、`src/BMI088.cpp`、`inc/imu.hpp`、`src/imu.cpp`（两板同源） | 六轴读取 + 750 帧静止零漂标定 + 就绪判定；两板均接入 TIM6 1 ms 更新 |
 | Mahony 姿态解算 | ✅ | `inc/mahony.hpp`、`src/mahony.cpp`（两板同源，经 `src/imu.cpp` 调用） | 姿态欧拉角（roll/pitch/yaw）与 `gyro_z` 输出；两板均接入 1 ms 更新 |
 | CAN 电机收发（M3508×4） | ✅ | `src/motor_M3508.cpp`、`src/HW_can.cpp`、`Instance/component/ins_motor.cpp` | 轮电机接**底盘板 CAN2**：0x200 单帧下发 4 轮电流；0x201~0x204 反馈经 CAN2 FIFO1 解码；bus-off 自动恢复、错误快照计数 |
-| DBUS 遥控（DR16） | ✅ | `inc/DT7.hpp`、`src/DT7.cpp`、`Task/component/comm_task.cpp`、`Instance/component/ins_comm.cpp` | USART3 空闲+DMA 收 18 B（`HAL_UARTEx_RxEventCallback`，帧边界重启对齐）；**拨轮 ch4 为 13 位段/11 位回绕段混合编码，用“分段选基 + 最小幅度回绕 + 中位磁滞锁存”解码（见 §拨轮编码）**；死区/限幅/通道映射见契约 §7.1；>100 ms 判离线 |
+| DBUS 遥控（DR16） | ✅ | `inc/DT7.hpp`、`src/DT7.cpp`、`Task/component/comm_task.cpp`、`Instance/component/ins_comm.cpp` | USART3 空闲+DMA 收 18 B（`HAL_UARTEx_RxEventCallback`，帧边界重启对齐）；**拨轮 ch4 为两段编码基的同一电位器：顺时针 13 位段、逆时针 11 位回绕段；重叠带用“上一帧增量预测 + 单帧整程兜底”消歧解码（见 §拨轮编码）**；死区/限幅/通道映射见契约 §7.1；>100 ms 判离线 |
 | 三态状态机 | ✅ | `Chassis/RobotModules/component/robot.cpp`、`Gimbal/RobotModules/component/robot.cpp` | Dead / Resurrection / Working；急停最外层；任一条安全条件丢失立即回 Dead 并零输出 |
 | O 型全向轮运动学 | ✅ | `Chassis/inc/chassis_ik_solver.hpp`、`Chassis/RobotModules/component/chassis.cpp` | 云台系速度 → δ 旋转 → 车体系 → 4 轮逆解 → 轮速环；安装角/几何/符号为可配常量（默认值待实车标定） |
 | 底盘三模式 | ✅ | `Chassis/RobotModules/component/robot.cpp` | 分离（**只平移不旋转**：`w=0`，拨轮不参与，2026-11-16 用户要求）/ 跟随（云台 δ 跟随 PD）/ 小陀螺（**自转限幅 = `kSpinWMax = 4.5 rad/s`**（2026-11-16 由 3.0 提高；分离模式已不自转），平移方向仍随云台，支持边旋转边平移：左摇杆平移 + 拨轮自转同时生效）；左拨杆切换，30 ms 去抖；左右摇杆水平方向已按实车极性修正 |
@@ -42,33 +42,33 @@
 - ✅ 跟随/小陀螺实车修正（2026-11-11）：跟随环 Kp/Kd/LPF/死区已二次整定（提高阻尼、消除死区边界震荡）；`kYawRateMax` 2.5→8.0 rad/s，使小陀螺时云台仍能世界稳定、不被底盘拖着转。
 - ✅ 实车控制修正（2026-11-15，最终版）：分离 `kMaxW` 6.0→**3.0 rad/s**；小陀螺 `kSpinWMax` = **`kMaxW` = 3.0**（两模式同速，用户要求）；小陀螺支持边旋转边平移（左摇杆平移 + 拨轮自转，方向随云台朝向 δ）；**左右摇杆水平方向修正**（`vy = -rc_lh·kMaxVxVy`、云台 yaw 目标 `-= rc_rh·kGimbalYawRateMax·dt`，此前左推反而右移/右转）；`kGimbalYawRateMax` 2.5→**5.0 rad/s**；云台 **yaw 底盘速率前馈**（消除小陀螺“被拖着转”的斜坡滞后）与 **pitch 目标速率前馈**（消除 pitch ramp 的 ~11° 稳态滞后）；`kPidYawAngleKp` **10**、`kPitchRateMax` **3.0**；新增调参镜像 `yaw_err/yaw_vel_target/pitch_err/pitch_vel_target/yaw_vel_ff/pitch_vel_ff/world_yaw_est/chassis_yaw_rate`；跟随模式实车反馈“云台不稳/跟底盘偏移”→ 前馈强低通（α=0.06）+0.08 rad/s 死区 + `world_yaw_est` 验证变量（T2 复测中）；**2026-11-16 取消分离模式拨轮自转**（分离模式 `w` 恒 0，拨轮只在 kSpin 生效）；**小陀螺 `kSpinWMax` 3.0→4.5 rad/s**（用户反馈 3 rad/s 太慢）。
 - ✅ 拨轮死区增大（2026-11-15）：`kWheelDeadZone` 0.10→**0.20**——拨轮快速拨动后弹簧回中过冲越过中位，过冲量 >0.1，表现为“先按拨动方向转一点、随后反向自转”；死区吃掉回弹（死区外仍线性重标定到满量程）。
-- ✅ 拨轮编码最终解（2026-11-15，实测标定）：ch4 为 **13 位段（顺时针，1024→8051）+ 11 位回绕段（逆时针，1024→0→2047→1684，−1387）的混合编码**；当前用“分段选基 + 最小幅度回绕差分 + 中位磁滞锁存（仅 11 位段）”解码，顺时针输出按 v16 分段（1024→2048 线性、>2048 满速 1.0），逆时针按展开值/1387 归一；完整规格见下一节。拨轮死区 `kWheelDeadZone=0.20` 用于吃掉弹簧回中过冲。
+- ✅ 拨轮编码最终解（2026-11-16 第 4 版，实测标定）：ch4 是**同一电位器的两段编码基**——顺时针 13 位段（`v16: 1024→8051`，+7027 counts）、逆时针 11 位回绕段（`v16: 1024→0→2047→1684`，−1387 counts）；两段在 `raw∈[1684,2047]` 重叠，用**上一帧增量预测**在 A 段（`s=raw−1024`）/C 段（`s=raw−3072`）两种解释间消歧，单帧整程甩动用兜底规则；中位硬复位 25 counts；输出 `s≥0 → s/1024`、`s<0 → s/1387`。完整规格见下一节。拨轮死区 `kWheelDeadZone=0.20` 用于吃掉弹簧回中过冲。
 
-## 拨轮（DR16 通道 4）编码方式与解码（2026-11-15 实测标定，当前实现）
+## 拨轮（DR16 通道 4）编码方式与解码（2026-11-16 第 4 版，实测标定）
 
 **硬件表现**（实现：`Chassis/src/DT7.cpp`，两板 `DT7.*` 同源；中位带弹簧回中）
 - 原始值 `v16 = raw[16] | (raw[17] << 8)`，**中位 `v16 = 1024`**（松手回中）。
-- 该接收机拨轮**不是单一 11 位/13 位编码**，而是两段不同编码基：
+- 同一电位器、两段不同编码基（`raw = v16 & 0x1FFF` 后）：
   - **顺时针**：13 位段，`v16: 1024 → 8051`（**+7027 counts**）；
-  - **逆时针**：11 位回绕段，`v16: 1024 → 0 → 2047 → 1684`（**−1387 counts**，跨 0 回绕）。
+  - **逆时针**：11 位回绕段，`v16: 1024 → 0 → 2047 → 1684`（**−1387 counts**，跨 0 回绕）；
+  - 两段在 `raw ∈ [1684, 2047]` **重叠**：既可解释为 A 段正小（`s = raw − 1024`，+661~+1023），也可解释为 C 段负大（`s = raw − 3072`，−1388~−1025）。
 
-**解码算法（2026-11-16 第 3 版：13 位连续展开 + 模 2048 回绕 + 中位硬复位）**
+**解码算法（2026-11-16 第 4 版：重叠带速度预测 + 单帧整程兜底）**
 
-1. **统一取 13 位连续值**：`raw = v16 & 0x1FFF`（`v16 ≤ 2047` 时等于原值；旧的 `v16>2048?13位:11位` 分段在 `v16==2048` 会得到 0，造成 ~2048 counts 跳变，已废弃）；
-2. **回绕差分**：`d = raw − prev`；仅当两侧都 ≤2048（11 位段）且 `|d| > 1024` 时按模 2048 展开（`0→2047` 判为 −1）；13 位段计数连续，丢帧大步直接采用差分；
-3. **中位硬复位**：`|raw − 1024| ≤ 25` 时展开值清 0（弹簧回中后不残留偏移）；
-4. **展开限幅**：`wheel_unwrapped_ ∈ [−1387, +7027]` counts；
-5. **归一化输出**：
-   - 正向（`unwrapped ≥ 0`）：`rc = min(1, unwrapped / 1024)`——前 1024 counts 满速、深行程保持 **1.0**；
-   - 负向：`rc = max(−1, unwrapped / 1387)`；
-6. **拨轮死区**：`kWheelDeadZone = 0.20` 死区 + 死区外线性重标定到满量程（`ApplyWheelDeadZone`，保号）——吃掉弹簧回中过冲造成的“先顺后逆”现象；
-7. **小陀螺方向**：`config::kSpinWheelSign = −1.0f`（2026-11-16 实车：拨轮顺时针应→底盘顺时针自转，此前相反；方向再反只改这一个常量，勿动解码）。
+1. **取 13 位原值**：`raw = v16 & 0x1FFF`（中位 1024、顺到底 8051、逆到底 1685）。
+2. **非重叠区间直接映射**：`raw < 1684` → `s = raw − 1024`（连续）；`raw > 2047` → `s = raw − 1024`（+1024~+7027）。
+3. **重叠带消歧**：`raw ∈ [1684, 2047]` 时算两种解释 `sa = raw − 1024`、`sc = raw − 3072`，取与预测值 `target = wheel_s_ + wheel_pred_`（上一帧位移 + 上一帧增量）更近者；`wheel_pred_` 为上一帧增量（clamp ±4000 counts）。
+4. **单帧整程兜底**：`|wheel_pred_| < 300`（上一帧几乎不动）且 `wheel_s_ > 3000`（此前靠近顺时针到底）且 `raw ≤ 1740` → 判为“顺时针到底快速甩到逆时针到底”的整程跨越，取 C 段解释 `sc`。
+5. **中位硬复位**：`|raw − 1024| ≤ 25` 时 `s = 0`（弹簧回中后不残留偏移）。
+6. **限幅与输出**：`s ∈ [−1387, +7027]`；`s ≥ 0 → rc = min(1, s/1024)`（前 1024 counts 满速）、`s < 0 → rc = max(−1, s/1387)`。
+7. **拨轮死区**：`kWheelDeadZone = 0.20` 死区 + 死区外线性重标定到满量程（`ApplyWheelDeadZone`，保号）——吃掉弹簧回中过冲造成的“先顺后逆”现象。
+8. **小陀螺方向**：`config::kSpinWheelSign = −1.0f`（2026-11-16 实车：拨轮顺时针应→底盘顺时针自转，此前相反；方向再反只改这一个常量，勿动解码）。
 
-**标定常量**（`Chassis/src/DT7.cpp`；更换接收机/拨轮批次后必须重测三点更新）：`kWheelSpanPos = 7027`、`kWheelSpanNeg = 1387`、`kWheelDetentIn = 25`。
+**标定常量**（`Chassis/src/DT7.cpp`；更换接收机/拨轮批次后必须重测三点更新）：`kWheelSpanPos = 7027`、`kWheelSpanNeg = 1387`、`kWheelDetentIn = 25`、`kWheelPredMax = 4000`。
 
-**观测镜像**：`g_dbg_rc_wheel_v16`（16 位原值）、`g_dbg_rc_wheel_raw`（13 位连续值）、`g_dbg_rc_wheel_unwrapped`（展开 counts，顺 **+7027** / 逆 **−1387**）、`g_dbg_rc_wheel_raw_log[32]` / `g_dbg_rc_wheel_unwrapped_log[32]`（环形日志，`g_dbg_rc_wheel_log_idx` 为写指针）。
+**观测镜像**：`g_dbg_rc_wheel_v16`（16 位原值）、`g_dbg_rc_wheel_raw`（13 位原值）、`g_dbg_rc_wheel_unwrapped`（位移 counts，顺 **+7027** / 逆 **−1387**）、`g_dbg_rc_wheel_raw_log[32]` / `g_dbg_rc_wheel_unwrapped_log[32]`（环形日志，`g_dbg_rc_wheel_log_idx` 为写指针）。
 
-**历史与结论**：①`& 0x07FF` 截断 → 顺时针满量程反向；②13 位连续展开（模 8192）→ 逆时针 +660（`0→2047` 被误判为 +2047）；③混合分段模型 → 顺时针到底后**快速**回拨残留正展开值（`v16==2048` 处 11 位掩码得 0，丢 ~2048 counts），表现为“快速回拨仍同向转、缓慢回拨正常”；④**2026-11-16 第 3 版（13 位连续 + 模 2048）同时解决三者**——快速/缓慢回拨、顺时针/逆时针/回中均正确。
+**历史与结论**：①`& 0x07FF` 截断 → 顺时针满量程反向；②13 位连续展开（模 8192）→ 逆时针 +660（`0→2047` 被误判 +2047）；③混合分段模型 `v16==2048` 处丢 ~2048 counts → 快速回拨残留正位移；④13 位连续 + 模 2048 展开 → 快速回拨时重叠带 `1684/1685` 仍被当作 A 段（+660）→ 同向小速度；⑤**第 4 版（重叠带预测 + 整程兜底）**：缓慢/快速回拨、顺/逆/回中均正确（Python 模型 `D:\rm\.tmp\wheel_sim_v8.py`：逆时针回拨样本数 2~20 全 OK）。
 
 ## 调试开关与已知限制
 
@@ -120,19 +120,19 @@ cmake --build --preset Debug -j 8
 > 也可不用 preset，直接 `cmake -S . -B build -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$PWD/cmake/gcc-arm-none-eabi.cmake" -DCMAKE_BUILD_TYPE=Debug`；`-DCMAKE_TOOLCHAIN_FILE` 必须为绝对路径。
 > ELF 固定输出到 `<板>/build/omni_<board>.elf`，可用 Ozone（SWD 4 MHz）加载。
 
-基线（2026-11-15，yaw 校准点 + 跟随阻尼 + 小陀螺限幅同速 + 云台速率前馈 + 左右摇杆方向修正 + 拨轮 13 位连续展开（模 2048 回绕）版 + 小陀螺方向修正，`TEST_MODE=0` 交付态，Debug 全量构建）：
+基线（2026-11-16，yaw 校准点 + 跟随阻尼 + 小陀螺限幅同速 + 云台速率前馈 + 左右摇杆方向修正 + 拨轮第 4 版重叠带预测解码 + 小陀螺方向修正，`TEST_MODE=0` 交付态，Debug 全量构建）：
 
 | 板 | 编译单元 | 结果 | text | data | bss | ELF |
 | --- | --- | --- | --- | --- | --- | --- |
-| Chassis | 677 | 0 error / 0 warning | 65,480 B | 304 B | 8,712 B | 2,411,292 B |
-| Gimbal | 678 | 0 error / 0 warning | 66,960 B | 120 B | 8,256 B | 2,365,828 B |
+| Chassis | 677 | 0 error / 0 warning | 65,612 B | 304 B | 8,712 B | 2,415,556 B |
+| Gimbal | 678 | 0 error / 0 warning | 66,960 B | 120 B | 8,256 B | 2,365,764 B |
 
-固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x2026114A`（539365706）、云台 `g_dbg_fw_tag = 0x20261147`（539365703）。
+固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x2026114C`（539365708）、云台 `g_dbg_fw_tag = 0x20261148`（539365704）。
 
 无硬件自测：底盘主机 harness `D:\rm\task8_selftest\test_logic.exe`（76/76 PASS）；云台 `gimbal_math.hpp` 15 条 `static_assert` 随构建验证。
 
 Ozone 可观测调试变量：
-- 底盘全局：`g_dbg_life_state/mode/source/estop/remote_online/imu_ready/peer_online`、`g_dbg_delta_rad`/`g_dbg_delta_deg`（δ，C 链接镜像，Ozone 直接输名字即可；`g_dbg_delta` 为内部链接同名量）、`g_dbg_follow_w`、`g_dbg_target_vx/vy/w`、`g_dbg_wheel_dz`、`g_dbg_rc_wheel_raw`（按 v16 分段选值：`v16>2048` 取 `v16 & 0x1FFF`、否则取 `v16 & 0x07FF`；中位=1024）、`g_dbg_rc_wheel_v16`（未截断 16 位原值）、`g_dbg_rc_wheel_unwrapped`（分段展开位移 counts：顺时针到底 +7027、逆时针到底 −1387；顺时针输出按 v16 分段（1024→2048 线性、>2048 满速），逆时针按 span 1387 归一；中位锁存带 25/140 counts 回差，回中后锁 0、离开超过 140 才重新计，避免弹簧回中振荡反复归零/上升）、`g_dbg_rc_wheel_raw_log[32]`/`g_dbg_rc_wheel_unwrapped_log[32]`（每帧原始/展开值环形日志，`g_dbg_rc_wheel_log_idx` 为下一个写位置，用于回中异常诊断）、`g_dbg_yaw_target`/`g_dbg_pitch_target`、`g_dbg_rc_lv/lh/rv/rh/wheel/l_switch/r_switch`、`g_dbg_wheel_vel/curr/input/angle/temp[4]`、`g_dbg_wheel_target/actual/out[4]`、`g_dbg_wheel_tx_cnt`/`g_dbg_c2g_tx_cnt`、`g_can_wheel_rx_cnt[4]`、`g_can_wheel_unknown_cnt`、`g_can1_unknown_cnt`、`g_can_g2c_rx_cnt`、`g_dbg_dbus_*`；
+- 底盘全局：`g_dbg_life_state/mode/source/estop/remote_online/imu_ready/peer_online`、`g_dbg_delta_rad`/`g_dbg_delta_deg`（δ，C 链接镜像，Ozone 直接输名字即可；`g_dbg_delta` 为内部链接同名量）、`g_dbg_follow_w`、`g_dbg_target_vx/vy/w`、`g_dbg_wheel_dz`、`g_dbg_rc_wheel_raw`（13 位原值 `v16 & 0x1FFF`，中位=1024）、`g_dbg_rc_wheel_v16`（未截断 16 位原值）、`g_dbg_rc_wheel_unwrapped`（位移 counts：顺时针到底 +7027、逆时针到底 −1387；重叠带用上一帧增量预测消歧、中位 ±25 counts 硬复位；输出 `s≥0 → s/1024`、`s<0 → s/1387`）、`g_dbg_rc_wheel_raw_log[32]`/`g_dbg_rc_wheel_unwrapped_log[32]`（每帧原始/位移环形日志，`g_dbg_rc_wheel_log_idx` 为下一个写位置，用于回拨异常诊断）、`g_dbg_yaw_target`/`g_dbg_pitch_target`、`g_dbg_rc_lv/lh/rv/rh/wheel/l_switch/r_switch`、`g_dbg_wheel_vel/curr/input/angle/temp[4]`、`g_dbg_wheel_target/actual/out[4]`、`g_dbg_wheel_tx_cnt`/`g_dbg_c2g_tx_cnt`、`g_can_wheel_rx_cnt[4]`、`g_can_wheel_unknown_cnt`、`g_can1_unknown_cnt`、`g_can_g2c_rx_cnt`、`g_dbg_dbus_*`；
 - 云台：`robot::robot_debug::{life_state,safety_ok,c2g_online,c2g_remote_online,c2g_estop,c2g_yaw_target,c2g_pitch_target,c2g_chassis_imu_yaw}`、`gimbal_debug::{yaw_world_target,yaw_joint_target,yaw_joint,yaw_torque,pitch_target,pitch_joint,pitch_torque,cycle_count}`（前馈调试新增 `gimbal_debug::chassis_yaw_rate`、`gimbal_debug::yaw_vel_ff`，单位 rad/s；`gimbal_debug::world_yaw_est` 为世界系 yaw 估计 = WrapPi(chassis_yaw+yaw_joint)，用于验证跟随/小陀螺时云台是否真正世界固定；调 PID 用 `gimbal_debug::yaw_err`/`yaw_vel_target`、`pitch_err`/`pitch_vel_target`——后者即**速度环目标**，单位 rad/s；`gimbal_debug::pitch_vel_ff` 为 pitch 目标速率前馈（2026-11-15 新增，消除 ramp 滞后）、`g_dbg_dm_vel/curr/torq/angle/input/enabled/status_code[2]`、`g_dbg_can1_tx_cnt`/`g_dbg_can2_tx_cnt`/`g_dbg_g2c_tx_cnt`、`g_can_yaw_fdb_cnt`/`g_can_pitch_fdb_cnt`/`g_can_c2g_rx_cnt`。
 
 > 提示：云台目标为**世界系 yaw**（v1.1 语义），转动底盘时云台会反向补偿保持指向（T2）。2026-11-15 已加 yaw/pitch 前馈与验证变量：`gimbal_debug::world_yaw_est` 应保持平直（底盘转动时云台世界指向不变）；可用“分离模式、车轮架空、手转底盘”测试符号链（云台应反向补偿）。若该量仍随底盘漂移，先查关节/世界公式符号链再调参。

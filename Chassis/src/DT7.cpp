@@ -54,70 +54,89 @@ void DT7::decode(const uint8_t rx_data[kRcRxDataLen])
   rc_lh_ = (tmp - kRcOffset) * kRcRatio;
   tmp = ((rx_data[4] >> 1) | (rx_data[5] << 7)) & 0x07FF;
   rc_lv_ = (tmp - kRcOffset) * kRcRatio;
-  /* 拨轮（2026-11-16 第三次实车复核：连续 13 位展开 + 中位硬复位，替换分段选基版）：
-   * 实测编码：中位 1024；顺时针到底 8051（13 位段）；逆时针先降到 0、再在 2047 段
-   * 继续降到 1684（11 位回绕）。两段在 0~8191 内都是连续计数，故统一按 13 位原值
-   * `raw = v16 & 0x1FFF` 展开（v16<=2047 时该掩码等于 v16，无副作用）；差分
-   * |d|>1024 时在 d、d±2048、d±8192 中取绝对值最小者。
-   * 关键：旧版按 `v16>2048 ? 13位 : 11位` 分段取原始值，v16 恰为 2048 时 11 位
-   * 掩码得到 0，造成 ~2048 counts 跳变丢失；顺时针到底后快速回拨会残留正展开值，
-   * 表现为“先顺时针到底、再迅速逆时针到底，车轮仍同向转”（缓慢回拨因经过中位
-   * 复位而正常）。本版统一 13 位连续值 + 中位硬复位，消除该跳变。
-   * 中位复位：|raw-1024|<=25 时展开值清零（弹簧回中后不残留偏移）。
-   * 展开值钳位 [-1387, +7027]（两侧实测行程）。
-   * 输出归一化：正向 = min(1, u/1024)（前 1024 counts 即满速，深行程保持 1）；
-   *             负向 = max(-1, u/1387)。 */
-  static constexpr int32_t kWheelSpanPos = 7027;    ///< 顺时针到底 +7027 counts（8051-1024，实测）
-  static constexpr int32_t kWheelSpanNeg = 1387;    ///< 逆时针到底 -1387 counts（1024+363，实测，11 位回绕）
-  static constexpr int32_t kWheelDetentIn = 25;     ///< 中位硬复位阈值（|raw-1024|，counts）
+  /* 拨轮解码（2026-11-16 第四次实车复核：重叠带速度预测消歧，替换 13 位连续展开版）：
+   * 实测编码（同一电位器、两段映射）：
+   *   顺时针：raw = v16（13 位段），s = raw - 1024，行程 +7027 counts（到 8051）；
+   *   逆时针：raw∈[1684,2047] 时 s = raw - 3072，行程 -1387 counts（到 1685 → -1387）。
+   *   其余 raw∈[0,1684) 一律 s = raw - 1024，计数连续。
+   * 重叠带 raw∈[1684,2047] 有两种解释（A 段正小 / C 段负大），按上一帧增量预测
+   * target = wheel_s_ + wheel_pred_ 选更近者；快速甩动（采样仅 2~3 帧、整程跨越）
+   * 用“上一帧几乎不动却落在 C 深段”的兜底判为整程反向。
+   * 中位硬复位：|raw-1024|<=25 时 s=0（弹簧回中后不残留偏移）。
+   * 输出：正 = min(1, s/1024)；负 = max(-1, s/1387)。
+   * 背景：13 位连续展开版在“顺时针到底→迅速逆时针到底”时，重叠带 raw=1684/1685
+   * 被当成 A 段解释（s=+660），展开值停在 +661（rc≈+0.65，同向），表现为快速回拨
+   * 仍同向转；缓慢回拨因经过中位复位而正常。本版用速度预测 + 整程兜底修正。 */
+  static constexpr int32_t kWheelSpanPos = 7027;   ///< 顺时针到底 +7027 counts（8051-1024，实测）
+  static constexpr int32_t kWheelSpanNeg = 1387;   ///< 逆时针到底 -1387 counts（实测）
+  static constexpr int32_t kWheelDetentIn = 25;    ///< 中位硬复位阈值（|raw-1024|，counts）
+  static constexpr int32_t kWheelPredMax = 4000;   ///< 单帧增量预测钳位（counts）
 
   const uint16_t v16 = static_cast<uint16_t>(rx_data[16] | (rx_data[17] << 8));
   g_dbg_rc_wheel_v16 = v16;  /* 未截断 16 位原值（诊断） */
-  const int32_t raw = static_cast<int32_t>(v16 & 0x1FFFu);  /* 13 位连续值 */
+  const int32_t raw = static_cast<int32_t>(v16 & 0x1FFFu);
   g_dbg_rc_wheel_raw = static_cast<uint16_t>(raw);
   if (!wheel_inited_) {
-    wheel_raw13_ = static_cast<uint16_t>(raw);
-    wheel_unwrapped_ = 0;
+    wheel_s_ = raw - 1024;
+    if (wheel_s_ > kWheelSpanPos) {
+      wheel_s_ = kWheelSpanPos;
+    } else if (wheel_s_ < -kWheelSpanNeg) {
+      wheel_s_ = -kWheelSpanNeg;
+    }
+    wheel_pred_ = 0;
     wheel_inited_ = true;
   } else {
-    int32_t d = raw - static_cast<int32_t>(wheel_raw13_);
-    /* 回绕只可能发生在 11 位段（两侧均 <=2048）：逆时针跨 0 时 v16 从 0 跳到 2047。
-     * 13 位段（任一采样 >2048）计数连续，即使丢帧（增量可 >1024）也按直接差分，
-     * 避免把顺时针大步误判成回绕。 */
-    if (wheel_raw13_ <= 2048u && raw <= 2048 && (d > 1024 || d < -1024)) {
-      const int32_t m = ((d + 1024) % 2048 + 2048) % 2048;
-      d = m - 1024;
+    int32_t s;
+    if (raw >= 1684 && raw <= 2047) {
+      const int32_t sa = raw - 1024; /* A 段解释：正小（+661~+1023） */
+      const int32_t sc = raw - 3072; /* C 段解释：负大（-1388~-1025） */
+      const int32_t target = wheel_s_ + wheel_pred_;
+      const int32_t da = sa - target;
+      const int32_t dc = sc - target;
+      s = ((da >= 0 ? da : -da) <= (dc >= 0 ? dc : -dc)) ? sa : sc;
+      /* 单帧整程兜底：上一帧几乎不动（|pred|<300）却落在 C 深段且此前在正大位移，
+       * 视为“从顺时针到底快速甩到逆时针到底”的整程跨越，取 C 段解释。 */
+      if (wheel_pred_ < 300 && wheel_pred_ > -300 && wheel_s_ > 3000 && raw <= 1740) {
+        s = sc;
+      }
+    } else {
+      s = raw - 1024;
     }
-    wheel_raw13_ = static_cast<uint16_t>(raw);
-    wheel_unwrapped_ += d;
-    /* 中位硬复位：真正回到中位附近即清零，消除长行程往返的累积误差。 */
+    if (s > kWheelSpanPos) {
+      s = kWheelSpanPos;
+    } else if (s < -kWheelSpanNeg) {
+      s = -kWheelSpanNeg;
+    }
+    int32_t d = s - wheel_s_;
     const int32_t err_mid = raw - 1024;
     if ((err_mid >= 0 ? err_mid : -err_mid) <= kWheelDetentIn) {
-      wheel_unwrapped_ = 0;
+      s = 0;
+      d = s - wheel_s_;
     }
-    if (wheel_unwrapped_ > kWheelSpanPos) {
-      wheel_unwrapped_ = kWheelSpanPos;
-    } else if (wheel_unwrapped_ < -kWheelSpanNeg) {
-      wheel_unwrapped_ = -kWheelSpanNeg;
+    if (d > kWheelPredMax) {
+      d = kWheelPredMax;
+    } else if (d < -kWheelPredMax) {
+      d = -kWheelPredMax;
     }
+    wheel_pred_ = d;
+    wheel_s_ = s;
   }
-  /* 输出归一化（2026-11-16：正向 1024 counts 满速、负向 1387 counts 满速）。 */
-  if (wheel_unwrapped_ >= 0) {
-    float t = static_cast<float>(wheel_unwrapped_) / 1024.0f;
+  if (wheel_s_ >= 0) {
+    float t = static_cast<float>(wheel_s_) / 1024.0f;
     if (t > 1.0f) {
       t = 1.0f;
     }
     rc_wheel_ = t;
   } else {
-    float t = static_cast<float>(wheel_unwrapped_) / static_cast<float>(kWheelSpanNeg);
+    float t = static_cast<float>(wheel_s_) / static_cast<float>(kWheelSpanNeg);
     if (t < -1.0f) {
       t = -1.0f;
     }
     rc_wheel_ = t;
   }
-  g_dbg_rc_wheel_unwrapped = wheel_unwrapped_;
+  g_dbg_rc_wheel_unwrapped = wheel_s_;
   g_dbg_rc_wheel_raw_log[g_dbg_rc_wheel_log_idx] = static_cast<uint16_t>(raw);
-  g_dbg_rc_wheel_unwrapped_log[g_dbg_rc_wheel_log_idx] = wheel_unwrapped_;
+  g_dbg_rc_wheel_unwrapped_log[g_dbg_rc_wheel_log_idx] = wheel_s_;
   g_dbg_rc_wheel_log_idx =
       static_cast<uint8_t>((g_dbg_rc_wheel_log_idx + 1u) % kRcWheelLogLen);
 
