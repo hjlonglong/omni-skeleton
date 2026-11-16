@@ -190,9 +190,8 @@ class DT7 {
    * 回绕判定自动识别两种基；展开值钳位 [-1387, +7027]。
    * 输出：顺时针 v16 1024→2048 线性 0→1、>2048 恒 1；逆时针 = 展开值/1387。
    * 中位锁存带 25/140 counts 回差，且只在 v16<=2048 段生效，避免顺时针深行程误判回中。 */
-  uint16_t wheel_raw13_ = 0;      ///< 上一拍拨轮原始值（分段选值后，回绕判定用）
+  uint16_t wheel_raw13_ = 0;      ///< 上一拍拨轮 13 位连续值（差分展开用）
   int32_t wheel_unwrapped_ = 0;   ///< 相对上电中位的展开位移（counts）
-  bool wheel_in_detent_ = true;   ///< 是否处于中位锁存（回差状态）
   bool wheel_inited_ = false;    ///< 是否已用首拍建立展开基准
 
   SwitchState rc_l_switch_ = kSwitchStateUp;  ///< 遥控器左拨杆值

@@ -280,7 +280,9 @@ inline ChassisVelocity GenerateVelocity(const hello_world::remote_control::DT7 &
       v.w = ClampValue(follow_w, config::kFollowWMax);
       break;
     case ChassisMode::kSpin:
-      v.w = ClampValue(wheel * config::kSpinWMax, config::kSpinWMax);
+      /* 拨轮顺时针 → 底盘顺时针自转（2026-11-16 实车：此前方向相反，消费端统一取负；
+       * 方向常量见 config::kSpinWheelSign，勿改 DT7 解码）。 */
+      v.w = ClampValue(config::kSpinWheelSign * wheel * config::kSpinWMax, config::kSpinWMax);
       break;
     case ChassisMode::kSeparate:
     default:
