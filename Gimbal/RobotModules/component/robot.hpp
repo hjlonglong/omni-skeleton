@@ -110,6 +110,7 @@ class Robot
   uint32_t state_entry_tick_ = 0;            ///< 进入当前状态时刻（ms）
   uint32_t candidate_tick_ = 0;              ///< Dead→Resurrection 条件满足起始时刻（ms）
   bool candidate_valid_ = false;             ///< candidate_tick_ 是否有效
+  bool c2g_targets_frozen_ = false;  ///< 对板未 Working 时是否已把云台目标冻结到当前反馈
 };
 
 }  // namespace robot

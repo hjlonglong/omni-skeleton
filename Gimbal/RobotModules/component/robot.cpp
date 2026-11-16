@@ -188,6 +188,7 @@ void Robot::EnterState(LifeState state)
   state_entry_tick_ = hello_world::tick::GetTickMs();
   robot_debug::life_state = static_cast<uint8_t>(state);
   candidate_valid_ = false;
+  c2g_targets_frozen_ = false;
 
   if (state == LifeState::kResurrection && gimbal_ != nullptr &&
       comm_ != nullptr) {
@@ -209,6 +210,11 @@ void Robot::update()
 
   const uint32_t now = hello_world::tick::GetTickMs();
   const auto &cd = comm_->chassis_data();
+
+  /* 对板（底盘）是否已进入 Working（C2G b0 bit1）：底盘板在 Dead/Resurrection
+   * 期间发送的 gimbal_yaw_target/gimbal_pitch_target 是复位值（上电为 0），云台
+   * 若直接跟踪会被“拉向 0”（表现为上电低头/抖动）。底盘未 Working 时冻结目标。 */
+  const bool c2g_working = (cd.life_state == LifeState::kWorking);
 
   /* 调试镜像（Ozone Live Watch） */
   robot_debug::c2g_estop = cd.estop ? 1u : 0u;
@@ -268,10 +274,20 @@ void Robot::update()
   /* 3. 输出：仅 Working 跟踪 C2G 目标；其余状态输出零（DM 仍需每周期发帧） */
   if (life_state_ == LifeState::kWorking) {
     gimbal_->setChassisYaw(cd.chassis_imu_yaw);
-    gimbal_->setYawTarget(cd.gimbal_yaw_target);      /* v1.1：期望世界 yaw */
-    gimbal_->setPitchTarget(cd.gimbal_pitch_target);  /* v1.1：期望绝对 pitch */
+    if (c2g_working) {
+      gimbal_->setYawTarget(cd.gimbal_yaw_target);      /* v1.1：期望世界 yaw */
+      gimbal_->setPitchTarget(cd.gimbal_pitch_target);  /* v1.1：期望绝对 pitch */
+      c2g_targets_frozen_ = false;
+    } else if (!c2g_targets_frozen_) {
+      /* 对板尚未进入 Working（上电/复位竞态窗口）：把目标冻结到当前反馈，
+       * 避免跟踪 C2G 的复位值 0 造成 pitch 低头/云台甩动；对板 Working 后恢复。 */
+      gimbal_->setYawTarget(cd.chassis_imu_yaw + gimbal_->yawJoint());
+      gimbal_->setPitchTarget(gimbal_->pitchJoint());
+      c2g_targets_frozen_ = true;
+    }
     gimbal_->update();
   } else {
+    c2g_targets_frozen_ = false;
     gimbal_->stop();
   }
 
