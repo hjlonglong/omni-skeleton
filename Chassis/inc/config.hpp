@@ -119,10 +119,10 @@ inline constexpr float kWheelDeadZone = 0.20f;
 
 /* ---- 速度限幅（云台系）---- */
 inline constexpr float kMaxVxVy = 1.5f;         ///< m/s，平移速度限幅
-inline constexpr float kMaxW = 3.0f;            ///< rad/s，分离模式拨轮自转限幅（2026-11-15：6.0→3.0 减半）
-/* 小陀螺自转限幅：2026-11-15 用户实测「小陀螺与分离模式旋转速度不相等」，要求
- * 小陀螺上限 = 分离模式上限 → 直接引用 kMaxW（两模式同值，改一处即可同步）。 */
-inline constexpr float kSpinWMax = kMaxW;       ///< rad/s，小陀螺自转限幅（= kMaxW）
+inline constexpr float kMaxW = 3.0f;            ///< rad/s，历史值（分离模式原拨轮自转限幅；2026-11-16 起分离模式 w 恒 0，保留常量兼容）
+/* 小陀螺自转限幅：2026-11-16 用户反馈 3.0 rad/s 太慢 → 提高到 4.5 rad/s；
+ * 分离模式自 2026-11-16 起不再自转，自转仅小陀螺模式使用本常量。 */
+inline constexpr float kSpinWMax = 4.5f;        ///< rad/s，小陀螺自转限幅（2026-11-16：3.0→4.5）
 /* 跟随环输出限幅（2026-11-11 提高：原 3 → 6，允许快速追上云台；与自转限幅同量级） */
 inline constexpr float kFollowWMax = 6.0f;      ///< rad/s，跟随环输出限幅
 /* 跟随死区（2026-11-11 二次收紧：0.02 → 0.005 rad≈0.3°。原 0.02 rad 硬死区让底盘
