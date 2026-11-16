@@ -285,6 +285,11 @@ void Robot::update()
   /* 3. 输出：仅 Working 跟踪 C2G 目标；其余状态输出零（DM 仍需每周期发帧） */
   if (life_state_ == LifeState::kWorking) {
     gimbal_->setChassisYaw(cd.chassis_imu_yaw);
+    /* 小陀螺专用 yaw 关节限速：底盘自转 4.5 + 摇杆世界目标速率 5.0 ≈ 9.5 rad/s，
+     * 超过常规 8.0 → 逆向补偿被截断（用户反馈“小陀螺时云台逆向转跟不上”）。
+     * 仅在 kSpin 模式切到 kYawRateMaxSpin(12.0)，其它模式保持 8.0。 */
+    gimbal_->setYawRateMax((cd.mode == ChassisMode::kSpin) ? config::kYawRateMaxSpin
+                                                           : config::kYawRateMax);
     if (c2g_working) {
       gimbal_->setYawTarget(cd.gimbal_yaw_target);      /* v1.1：期望世界 yaw */
       gimbal_->setPitchTarget(cd.gimbal_pitch_target);  /* v1.1：期望绝对 pitch */

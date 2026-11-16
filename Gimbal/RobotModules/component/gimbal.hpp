@@ -27,6 +27,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include <cstdint>
 
+#include "config.hpp"
+
 namespace hello_world
 {
 namespace motor
@@ -105,6 +107,13 @@ class Gimbal
    */
   void setPitchTarget(float pitch_joint);
 
+  /**
+   * @brief       设置 yaw 关节速度限幅（rad/s）
+   * @param       rate_max: 限幅值；小陀螺模式用 config::kYawRateMaxSpin，其它模式用 kYawRateMax
+   * @note        仅影响位置环输出/前馈 LPF 的 clamp，不改变正常遥控手感
+   */
+  void setYawRateMax(float rate_max) { yaw_rate_max_ = rate_max; }
+
   /** @brief 1ms 位置控制：读关节反馈 → 位置环 → 速度环 → MIT 力矩下发 */
   void update();
 
@@ -134,6 +143,7 @@ class Gimbal
   hello_world::imu::Imu *imu_ = nullptr;  ///< 保留接口，云台控制不使用
 
   float yaw_world_target_ = 0.0f;  ///< 期望世界 yaw（rad）
+  float yaw_rate_max_ = config::kYawRateMax;  ///< yaw 关节速度限幅（模式相关，见 setYawRateMax）
   float chassis_yaw_ = 0.0f;       ///< 底盘 IMU yaw（rad）
   /* 底盘 yaw 速率前馈（2026-11-15）：小陀螺时底盘自转 3 rad/s，纯位置环跟踪
    * 斜坡会有稳态滞后（误差 = 角速度/Kp），前馈直接把所需关节反向速度加到

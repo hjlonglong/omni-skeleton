@@ -79,6 +79,12 @@ inline constexpr float kPitchMax = 0.55f;    ///< rad，TODO(硬件)：抬头限
  * 至少同等角速度反向补偿；原 2.5 rad/s 只能跟到 2.5 → 云台被底盘“拖着转”。
  * 手动遥控的摇杆速率上限仍由 kStickYawGain=2.5 决定，不受影响。 */
 inline constexpr float kYawRateMax = 8.0f;   ///< rad/s，yaw 关节速度限幅（小陀螺稳定需 ≥ 底盘自转）
+/* 小陀螺模式专用 yaw 关节速度限幅（2026-11-16 用户反馈：小陀螺 4.5 rad/s 时“云台逆向转跟不上”）。
+ * 小陀螺稳定需求 = 底盘自转 4.5 + 摇杆世界目标速率 kGimbalYawRateMax(5.0) ≈ 9.5 rad/s，
+ * 超过常规 8.0 → 逆向补偿被截断。仅在 C2G 报告 kSpin 模式时切换到此限幅，其它模式仍用 8.0。
+ * 若仍跟不上，优先查速度环力矩是否饱和（gimbal_debug::yaw_torque 贴 ±kYawTorqueMax），
+ * 再考虑降低底盘 kSpinWMax 或摇杆 kGimbalYawRateMax。 */
+inline constexpr float kYawRateMaxSpin = 12.0f;  ///< rad/s，小陀螺模式 yaw 关节速度限幅（2026-11-16 新增）
 inline constexpr float kPitchRateMax = 3.0f; ///< rad/s，pitch 关节速度限幅（2026-11-15 1.5→3.0：用户反馈 pitch 跟不上目标，位置环输出长期被 1.5 卡住）
 /* yaw 力矩限幅。2026-11-15 由 3.0 提高到 4.5：小陀螺（底盘 3 rad/s）时云台仍需
  * 反向补偿，3.0 N·m 在跟随/自转叠加时不够 → 云台被底盘“拖着转”。DM-J4310-2EC

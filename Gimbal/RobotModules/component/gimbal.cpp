@@ -176,7 +176,7 @@ void Gimbal::update()
       ((yaw_rate_raw > -0.08f) && (yaw_rate_raw < 0.08f)) ? 0.0f : yaw_rate_raw;
   chassis_yaw_rate_ = gimbal_math::ClampValue(
       chassis_yaw_rate_ * (1.0f - 0.06f) + yaw_rate_cmd * 0.06f,
-      -config::kYawRateMax, config::kYawRateMax);
+      -yaw_rate_max_, yaw_rate_max_);
   const float yaw_vel_ff = -chassis_yaw_rate_;
 
   /* 3. yaw 位置环：把关节反馈幂等到目标分支后进 PID（误差 = 最短路径 wrap） */
@@ -184,7 +184,7 @@ void Gimbal::update()
   const float yaw_fdb_equiv = yaw_joint_target - yaw_err;
   const float yaw_vel_target = gimbal_math::ClampValue(
       yaw_pid_->calc(yaw_joint_target, yaw_fdb_equiv, config::kTs) + yaw_vel_ff,
-      -config::kYawRateMax, config::kYawRateMax);
+      -yaw_rate_max_, yaw_rate_max_);
 
   /* 4. pitch：目标软限位 clamp 后做位置环（pitch 反馈无 wrap） */
   const float pitch_target = gimbal_math::ClampPitchTarget(pitch_target_);
