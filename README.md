@@ -75,7 +75,7 @@
 > ⚠️ `DEBUG_NO_IWDG`：仅台架 + 调试器使用，交付态必须为 `0`。
 > ⚠️ 硬件相关常量（轮安装角/几何/符号、DM 方向/零位、PMAX/VMAX/TMAX）均为**默认假设值**，已在 `config.hpp` 标 `TODO(硬件)`，实车 L3 必须逐项标定后才可落地运行。
 > ⚠️ **拨轮解码常量按当前接收机实测标定**（规格见上一节）：更换接收机/遥控器批次后，需重测中位/顺到底/逆到底三点，更新 `kWheelSpanPos/kWheelSpanNeg` 与 `kWheelDeadZone`。
-> ⚠️ **上电/复位窗口（2026-11-16 修复）**：底盘进入 Working 前，其 C2G 帧里的云台目标角是复位值（`gimbal_pitch_target_` 上电为 0）。云台板现在会检查 C2G 的 Working 位（b0 bit1），底盘未 Working 时把云台目标**冻结到当前反馈**、不跟踪复位目标；底盘 Working 后自动恢复跟踪。修复前表现为云台上电 pitch 先抬头再突然低头约 5°、甚至上下抖动（目标 0 甩动 + 重力下垂叠加）。
+> ⚠️ **上电/复位窗口 + 上电不回正（2026-11-16）**：底盘进入 Working 前，其 C2G 帧里的云台目标角是复位值（`gimbal_yaw_target_/gimbal_pitch_target_` 上电为 0）。云台板检查 C2G 的 Working 位（b0 bit1）：未 Working 时把云台目标**冻结到当前反馈**、不跟踪复位目标；**并且进入 Working 时显式把目标锁定为当前姿态**（`EnterState(kWorking)`），因此上电**不会自动回正**（yaw 保持上电朝向、pitch 保持上电俯仰），直到对板 Working 后目标变化再跟踪。修复前表现为云台上电 pitch 先抬头再突然低头约 5°、甚至上下抖动（目标 0 甩动 + 重力下垂叠加）；如未来需要“上电回正”，应作为可选功能显式实现（见契约 v1.1.26）。
 
 ## 目录结构
 
@@ -124,9 +124,9 @@ cmake --build --preset Debug -j 8
 | 板 | 编译单元 | 结果 | text | data | bss | ELF |
 | --- | --- | --- | --- | --- | --- | --- |
 | Chassis | 677 | 0 error / 0 warning | 65,652 B | 304 B | 8,712 B | 2,415,872 B |
-| Gimbal | 678 | 0 error / 0 warning | 66,836 B | 120 B | 8,256 B | 2,365,700 B |
+| Gimbal | 678 | 0 error / 0 warning | 66,960 B | 120 B | 8,256 B | 2,365,828 B |
 
-固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x20261144`（539365700）、云台 `g_dbg_fw_tag = 0x20261143`（539365699）。
+固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x20261144`（539365700）、云台 `g_dbg_fw_tag = 0x20261145`（539365701）。
 
 无硬件自测：底盘主机 harness `D:\rm\task8_selftest\test_logic.exe`（76/76 PASS）；云台 `gimbal_math.hpp` 15 条 `static_assert` 随构建验证。
 

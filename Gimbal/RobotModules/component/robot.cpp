@@ -199,6 +199,17 @@ void Robot::EnterState(LifeState state)
     gimbal_->setYawTarget(chassis_yaw + gimbal_->yawJoint());
     gimbal_->setPitchTarget(gimbal_->pitchJoint());
   }
+
+  if (state == LifeState::kWorking && gimbal_ != nullptr && comm_ != nullptr) {
+    /* 上电不回正（2026-11-16 用户决策）：进入 Working 时显式把目标锁定到当前姿态，
+     * 再等对板 Working 后恢复跟踪 C2G。否则依赖底盘复位值（yaw/pitch 目标 = 0），
+     * 云台一上电就会转回车头方向/拉平俯仰（即此前的“上电回正/低头 5°”）。 */
+    const float chassis_yaw = comm_->chassis_data().chassis_imu_yaw;
+    gimbal_->setChassisYaw(chassis_yaw);
+    gimbal_->setYawTarget(chassis_yaw + gimbal_->yawJoint());
+    gimbal_->setPitchTarget(gimbal_->pitchJoint());
+    c2g_targets_frozen_ = true;
+  }
 }
 
 void Robot::update()
