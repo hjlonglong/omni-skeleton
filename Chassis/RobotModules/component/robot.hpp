@@ -261,9 +261,11 @@ struct LifeStateMachine {
  * @note   vx：左摇杆上推为正（前进）；vy：左摇杆左推为正（左移）；
  *         2026-11-15 方向修正：DBUS 实测左摇杆左推时 rc_lh() 为负，故 vy 取反，
  *         保证“左推→左移、右推→右移”（此前写反，左推反而右移）。
- *         分离/小陀螺的 w 来自拨轮（经 ApplyWheelDeadZone 死区+重标定），跟随的 w 来自跟随环。
+ *         自转 w：仅小陀螺模式来自拨轮（经 ApplyWheelDeadZone 死区+重标定）；
+ *         跟随模式来自跟随环；**分离模式不旋转**（2026-11-16 用户要求取消
+ *         “分离模式拨轮自转”，拨轮在分离模式不生效）。
  *         小陀螺 kSpin（2026-11-11 用户确认）：左摇杆平移 + 拨轮 → 自转 w
- *         （vx/vy 仍按 δ 旋转到车体系），与分离模式的差别只有 kSpinWMax 限幅。
+ *         （vx/vy 仍按 δ 旋转到车体系）。
  */
 inline ChassisVelocity GenerateVelocity(const hello_world::remote_control::DT7 &rc,
                                         ChassisMode mode, float follow_w)
@@ -282,7 +284,8 @@ inline ChassisVelocity GenerateVelocity(const hello_world::remote_control::DT7 &
       break;
     case ChassisMode::kSeparate:
     default:
-      v.w = ClampValue(wheel * config::kMaxW, config::kMaxW);
+      /* 分离模式：只平移、不旋转；拨轮不参与（2026-11-16 用户要求） */
+      v.w = 0.0f;
       break;
   }
   return v;
