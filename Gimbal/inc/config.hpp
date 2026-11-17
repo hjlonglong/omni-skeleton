@@ -93,27 +93,11 @@ inline constexpr float kYawTorqueMax = 4.5f;   ///< N·m，yaw 力矩限幅（20
 inline constexpr float kPitchTorqueMax = 2.5f; ///< N·m，pitch 力矩限幅（安全）
 inline constexpr float kPitchLimitMargin = 0.10f;  ///< rad，pitch 反馈越限裕度（状态机故障判定）
 
-/* ---- 静止保持（2026-11-17 用户反馈：稳定时“太软”，手推易偏）----
- * 仅在两轴“已稳定”时叠加虚拟弹簧力矩 K_hold·角度误差，提高手推/外力下的
- * 静止刚度；运动增益不变，不参与跟踪动态。两轴独立判定：
- * 进入：|err|≤kHoldErrIn 且 |vel|≤kHoldVelIn 持续 kHoldEnterMs；
- * 退出：|err|≥kHoldErrOut 或 |vel|≥kHoldVelOut（滞回避免边界抖动）；
- * 力矩按 kHoldRampMs 线性渐入/渐出，叠加在速度环输出之后、力矩限幅之前。
- * 基础刚度（Kp×Kv）≈ yaw 10.4 / pitch 16 N·m/rad，保持刚度在此基础上叠加。 */
-inline constexpr float kHoldErrIn = 0.02f;          ///< rad，进入静止保持的角误差阈值
-inline constexpr float kHoldVelIn = 0.30f;          ///< rad/s，进入速度阈值
-inline constexpr float kHoldEnterMs = 200.0f;       ///< ms，需持续满足进入条件
-inline constexpr float kHoldErrOut = 0.05f;         ///< rad，退出误差阈值（滞回）
-inline constexpr float kHoldVelOut = 0.60f;         ///< rad/s，退出速度阈值
-inline constexpr float kHoldStiffnessYaw = 15.0f;   ///< N·m/rad，yaw 附加静止刚度
-inline constexpr float kHoldStiffnessPitch = 12.0f; ///< N·m/rad，pitch 附加静止刚度
-inline constexpr float kHoldRampMs = 100.0f;        ///< ms，保持力矩渐入/渐出时间
-
 /* ---- 云台位置环 PID 初值（输入角度误差 rad，输出目标关节速度 rad/s）---- */
-inline constexpr float kPidYawAngleKp = 13.0f;   ///< 2026-11-15 8→12→10：配合速率前馈；跟随模式低速摆动时可再降
+inline constexpr float kPidYawAngleKp = 13.0f;   ///< 2026-11-15 8→12→10；2026-11-17 用户实车调参 10→13
 inline constexpr float kPidYawAngleKi = 0.0f;    ///< TODO(调参)
 inline constexpr float kPidYawAngleKd = 0.0f;    ///< TODO(调参)
-inline constexpr float kPidPitchAngleKp = 20.0f;  ///< TODO(调参)
+inline constexpr float kPidPitchAngleKp = 20.0f;  ///< 2026-11-17 用户实车调参 8→20（提高 pitch 刚度）
 inline constexpr float kPidPitchAngleKi = 0.0f;  ///< TODO(调参)
 inline constexpr float kPidPitchAngleKd = 0.0f;  ///< TODO(调参)
 
