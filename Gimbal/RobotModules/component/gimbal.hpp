@@ -66,6 +66,8 @@ extern volatile float yaw_vel_target;    ///< yaw 速度环目标（rad/s，位�
 extern volatile float pitch_err;         ///< pitch 位置误差（rad）
 extern volatile float pitch_vel_target;  ///< pitch 速度环目标（rad/s，位置环输出+目标速率前馈，已限幅）
 extern volatile float pitch_vel_ff;      ///< pitch 目标速率前馈（rad/s，2026-11-15）
+extern volatile float yaw_hold_torque;   ///< 静止保持叠加的 yaw 力矩（N·m，2026-11-17）
+extern volatile float pitch_hold_torque; ///< 静止保持叠加的 pitch 力矩（N·m，2026-11-17）
 extern volatile uint32_t cycle_count;    ///< update() 调用计数
 }  // namespace gimbal_debug
 
@@ -161,6 +163,12 @@ class Gimbal
   float pitch_vel_integ_ = 0.0f;   ///< pitch 速度环积分状态
   float yaw_torque_ = 0.0f;        ///< 本周期 yaw 力矩（N·m）
   float pitch_torque_ = 0.0f;      ///< 本周期 pitch 力矩（N·m）
+  /* 静止保持（2026-11-17）：两轴独立判定“已稳定”后叠加虚拟弹簧刚度，
+   * 提高手推/外力下的静止刚度。timer=进入条件累计时间(s)，blend=渐入渐出系数(0~1)。 */
+  float yaw_hold_timer_ = 0.0f;    ///< yaw 进入保持条件累计时间（s）
+  float pitch_hold_timer_ = 0.0f;  ///< pitch 进入保持条件累计时间（s）
+  float yaw_hold_blend_ = 0.0f;    ///< yaw 保持力矩渐变系数（0~1）
+  float pitch_hold_blend_ = 0.0f;  ///< pitch 保持力矩渐变系数（0~1）
 };
 
 }  // namespace robot

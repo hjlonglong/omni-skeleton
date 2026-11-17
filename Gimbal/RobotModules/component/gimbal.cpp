@@ -47,6 +47,8 @@ volatile float yaw_vel_target = 0.0f;
 volatile float pitch_err = 0.0f;
 volatile float pitch_vel_target = 0.0f;
 volatile float pitch_vel_ff = 0.0f;
+volatile float yaw_hold_torque = 0.0f;
+volatile float pitch_hold_torque = 0.0f;
 volatile uint32_t cycle_count = 0;
 }  // namespace gimbal_debug
 
@@ -74,6 +76,39 @@ float CalcVelocityLoopTorque(float vel_target, float vel_actual, float kp,
   *integ = gimbal_math::ClampValue(*integ + ki * err * config::kTs, -torque_max,
                                    torque_max);
   return gimbal_math::ClampValue(kp * err + *integ, -torque_max, torque_max);
+}
+
+/**
+ * @brief       静止保持状态机（2026-11-17）：判定进入/退出并线性渐变 blend（0~1）
+ * @param       err: 角度误差（rad；yaw 用 WrapPi 后误差）
+ * @param       vel: 关节角速度反馈（rad/s）
+ * @param       timer: 进入条件累计时间（s，跨周期保持）
+ * @param       blend: 保持力矩渐变系数（0~1）
+ * @note        进入需持续 kHoldEnterMs；退出阈值更大形成滞回，避免边界反复切换；
+ *              渐变步长 = kTs/kHoldRampMs，约 100 个周期（100 ms）完成 0↔1。
+ *              两轴独立调用，互不影响。
+ */
+void UpdateStaticHold(float err, float vel, float *timer, float *blend)
+{
+  const float abs_err = (err >= 0.0f) ? err : -err;
+  const float abs_vel = (vel >= 0.0f) ? vel : -vel;
+  const bool in_cond =
+      (abs_err <= config::kHoldErrIn) && (abs_vel <= config::kHoldVelIn);
+  const bool out_cond =
+      (abs_err >= config::kHoldErrOut) || (abs_vel >= config::kHoldVelOut);
+  if (in_cond) {
+    *timer += config::kTs;
+  } else {
+    *timer = 0.0f;
+  }
+  const bool active = ((*timer * 1000.0f) >= config::kHoldEnterMs) && !out_cond;
+  const float step = config::kTs / (config::kHoldRampMs * 0.001f);
+  const float target = active ? 1.0f : 0.0f;
+  if (*blend < target) {
+    *blend = gimbal_math::ClampValue(*blend + step, 0.0f, 1.0f);
+  } else if (*blend > target) {
+    *blend = gimbal_math::ClampValue(*blend - step, 0.0f, 1.0f);
+  }
 }
 
 /**
@@ -117,6 +152,11 @@ void Gimbal::init(hello_world::motor::Motor *yaw,
   pitch_vel_ff_ = 0.0f;
   yaw_torque_ = 0.0f;
   pitch_torque_ = 0.0f;
+  /* 静止保持状态复位（2026-11-17） */
+  yaw_hold_timer_ = 0.0f;
+  pitch_hold_timer_ = 0.0f;
+  yaw_hold_blend_ = 0.0f;
+  pitch_hold_blend_ = 0.0f;
 
   if (yaw_pid_ != nullptr) {
     yaw_pid_->reset();
@@ -211,14 +251,31 @@ void Gimbal::update()
       -config::kPitchRateMax, config::kPitchRateMax);
 
   /* 5. 速度环 → MIT 力矩（力矩限幅在速度环内完成） */
-  const float yaw_torque =
+  const float yaw_torque_loop =
       CalcVelocityLoopTorque(yaw_vel_target, yaw_->vel(), config::kPidYawVelKp,
                              config::kPidYawVelKi, config::kYawTorqueMax,
                              &yaw_vel_integ_);
-  const float pitch_torque =
+  const float pitch_torque_loop =
       CalcVelocityLoopTorque(pitch_vel_target, pitch_->vel(),
                              config::kPidPitchVelKp, config::kPidPitchVelKi,
                              config::kPitchTorqueMax, &pitch_vel_integ_);
+
+  /* 5.1 静止保持附加力矩（2026-11-17）：稳定后叠加虚拟弹簧刚度，提高手推/外力下
+   *     的静止刚度；两轴独立滞回判定 + 渐变进出，不改变运动跟踪增益。
+   *     力矩叠加后再次限幅，保证不超过 config 的力矩上限。 */
+  UpdateStaticHold(yaw_err, yaw_->vel(), &yaw_hold_timer_, &yaw_hold_blend_);
+  UpdateStaticHold(pitch_target - pitch_joint, pitch_->vel(), &pitch_hold_timer_,
+                   &pitch_hold_blend_);
+  const float yaw_hold_torque =
+      yaw_hold_blend_ * config::kHoldStiffnessYaw * yaw_err;
+  const float pitch_hold_torque =
+      pitch_hold_blend_ * config::kHoldStiffnessPitch * (pitch_target - pitch_joint);
+  const float yaw_torque =
+      gimbal_math::ClampValue(yaw_torque_loop + yaw_hold_torque,
+                              -config::kYawTorqueMax, config::kYawTorqueMax);
+  const float pitch_torque =
+      gimbal_math::ClampValue(pitch_torque_loop + pitch_hold_torque,
+                              -config::kPitchTorqueMax, config::kPitchTorqueMax);
 
   /* 6. 下发 MIT 纯力矩帧（每轴一帧，CommTask 统一发送 encode 结果） */
   SendMitTorque(yaw_, yaw_torque);
@@ -243,6 +300,8 @@ void Gimbal::update()
   gimbal_debug::pitch_target = pitch_target;
   gimbal_debug::pitch_joint = pitch_joint;
   gimbal_debug::pitch_torque = pitch_torque;
+  gimbal_debug::yaw_hold_torque = yaw_hold_torque;
+  gimbal_debug::pitch_hold_torque = pitch_hold_torque;
 }
 
 void Gimbal::stop()
@@ -267,8 +326,15 @@ void Gimbal::stop()
   pitch_vel_ff_ = 0.0f;
   yaw_torque_ = 0.0f;
   pitch_torque_ = 0.0f;
+  /* 静止保持状态复位（重新进 Working 时从头判定，避免沿用旧渐变值） */
+  yaw_hold_timer_ = 0.0f;
+  pitch_hold_timer_ = 0.0f;
+  yaw_hold_blend_ = 0.0f;
+  pitch_hold_blend_ = 0.0f;
   gimbal_debug::yaw_torque = 0.0f;
   gimbal_debug::pitch_torque = 0.0f;
+  gimbal_debug::yaw_hold_torque = 0.0f;
+  gimbal_debug::pitch_hold_torque = 0.0f;
 }
 
 float Gimbal::yawJoint() const
