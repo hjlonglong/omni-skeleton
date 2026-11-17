@@ -43,7 +43,7 @@
 - ✅ 实车控制修正（2026-11-15，最终版）：分离 `kMaxW` 6.0→**3.0 rad/s**；小陀螺 `kSpinWMax` = **`kMaxW` = 3.0**（两模式同速，用户要求）；小陀螺支持边旋转边平移（左摇杆平移 + 拨轮自转，方向随云台朝向 δ）；**左右摇杆水平方向修正**（`vy = -rc_lh·kMaxVxVy`、云台 yaw 目标 `-= rc_rh·kGimbalYawRateMax·dt`，此前左推反而右移/右转）；`kGimbalYawRateMax` 2.5→**5.0 rad/s**；云台 **yaw 底盘速率前馈**（消除小陀螺“被拖着转”的斜坡滞后）与 **pitch 目标速率前馈**（消除 pitch ramp 的 ~11° 稳态滞后）；`kPidYawAngleKp` **10**、`kPitchRateMax` **3.0**；新增调参镜像 `yaw_err/yaw_vel_target/pitch_err/pitch_vel_target/yaw_vel_ff/pitch_vel_ff/world_yaw_est/chassis_yaw_rate`；跟随模式实车反馈“云台不稳/跟底盘偏移”→ 前馈强低通（α=0.06）+0.08 rad/s 死区 + `world_yaw_est` 验证变量（T2 复测中）；**2026-11-16 取消分离模式拨轮自转**（分离模式 `w` 恒 0，拨轮只在 kSpin 生效）；**小陀螺 `kSpinWMax` 3.0→4.5 rad/s**（用户反馈 3 rad/s 太慢）。
 - ✅ 拨轮死区增大（2026-11-15）：`kWheelDeadZone` 0.10→**0.20**——拨轮快速拨动后弹簧回中过冲越过中位，过冲量 >0.1，表现为“先按拨动方向转一点、随后反向自转”；死区吃掉回弹（死区外仍线性重标定到满量程）。
 - ✅ 拨轮编码最终解（2026-11-16 第 4 版，实测标定）：ch4 是**同一电位器的两段编码基**——顺时针 13 位段（`v16: 1024→8051`，+7027 counts）、逆时针 11 位回绕段（`v16: 1024→0→2047→1684`，−1387 counts）；两段在 `raw∈[1684,2047]` 重叠，用**上一帧增量预测**在 A 段（`s=raw−1024`）/C 段（`s=raw−3072`）两种解释间消歧，单帧整程甩动用兜底规则；中位硬复位 25 counts；输出 `s≥0 → s/1024`、`s<0 → s/1387`。完整规格见下一节。拨轮死区 `kWheelDeadZone=0.20` 用于吃掉弹簧回中过冲。
-- ✅ 云台稳定参数（2026-11-17）：`kPitchRateMax` 3.0→**4.5 rad/s**（用户要求提高 pitch 速度上限）；`kPidYawAngleKp=13`、`kPidPitchAngleKp=20`（用户实车调参）；曾加两轴静止保持（虚拟弹簧），用户要求**已撤销**（commit `67c1520`，保留 pitch 4.5 与上述 Kp）；新增 **pitch 重力前馈** `τ_ff = kPitchGravityTorqueAmp·cos(pitch_joint)`（`kPitchGravityTorqueAmp=0.40 N·m`，实车标定；符号相反时取负），叠加在速度环输出后、力矩限幅前，减小 pitch 静差/低头；镜像 `gimbal_debug::pitch_gravity_ff`。
+- ✅ 云台稳定参数（2026-11-17）：`kPitchRateMax` 3.0→**4.5 rad/s**（用户要求提高 pitch 速度上限）；`kPidYawAngleKp=13`、`kPidPitchAngleKp=25`（用户实车调参）；曾加两轴静止保持（虚拟弹簧），用户要求**已撤销**（commit `67c1520`，保留 pitch 4.5 与上述 Kp）；新增 **pitch 重力前馈** `τ_ff = kPitchGravityTorqueAmp·cos(pitch_joint)`（幅值 **0.65 N·m**，2026-11-17 由 0.40 增大；实车标定，符号相反时取负），叠加在速度环输出后、力矩限幅前，减小 pitch 静差/低头；镜像 `gimbal_debug::pitch_gravity_ff`。
 
 ## 拨轮（DR16 通道 4）编码方式与解码（2026-11-16 第 4 版，实测标定）
 
@@ -126,9 +126,9 @@ cmake --build --preset Debug -j 8
 | 板 | 编译单元 | 结果 | text | data | bss | ELF |
 | --- | --- | --- | --- | --- | --- | --- |
 | Chassis | 677 | 0 error / 0 warning | 65,612 B | 304 B | 8,712 B | 2,415,556 B |
-| Gimbal | 678 | 0 error / 0 warning | 71,324 B | 196 B | 8,188 B | 2,371,964 B |
+| Gimbal | 678 | 0 error / 0 warning | 71,324 B | 196 B | 8,188 B | 2,371,968 B |
 
-固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x2026114C`（539365708）、云台 `g_dbg_fw_tag = 0x20261150`（539365712）。
+固件版本（Ozone 中确认烧录）：底盘 `g_dbg_fw_tag = 0x2026114C`（539365708）、云台 `g_dbg_fw_tag = 0x20261151`（539365713）。
 
 无硬件自测：底盘主机 harness `D:\rm\task8_selftest\test_logic.exe`（76/76 PASS）；云台 `gimbal_math.hpp` 15 条 `static_assert` 随构建验证。
 

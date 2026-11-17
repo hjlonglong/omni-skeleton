@@ -100,13 +100,13 @@ inline constexpr float kPitchLimitMargin = 0.10f;  ///< rad，pitch 反馈越限
  * 抑制缓慢低头/抬头，降低对位置环增益的依赖。
  * A 需实车标定：水平位置静止时，位置环静差力矩 ≈ A（可读 gimbal_debug::pitch_torque 估计）；
  * 若实车观察到前馈方向相反（偏得更远），把 A 取负值即可。 */
-inline constexpr float kPitchGravityTorqueAmp = 0.40f;  ///< N·m，pitch 重力力矩幅值（实车标定，符号按机构定）
+inline constexpr float kPitchGravityTorqueAmp = 0.65f;  ///< N·m，pitch 重力力矩幅值（2026-11-17 用户要求增大：0.40→0.65；继续按实车静差标定）
 
 /* ---- 云台位置环 PID 初值（输入角度误差 rad，输出目标关节速度 rad/s）---- */
 inline constexpr float kPidYawAngleKp = 13.0f;   ///< 2026-11-15 8→12→10；2026-11-17 用户实车调参 10→13
 inline constexpr float kPidYawAngleKi = 0.0f;    ///< TODO(调参)
 inline constexpr float kPidYawAngleKd = 0.0f;    ///< TODO(调参)
-inline constexpr float kPidPitchAngleKp = 20.0f;  ///< 2026-11-17 用户实车调参 8→20（提高 pitch 刚度）
+inline constexpr float kPidPitchAngleKp = 25.0f;  ///< 2026-11-17 用户实车调参 8→20→25（提高 pitch 刚度）
 inline constexpr float kPidPitchAngleKi = 0.0f;  ///< TODO(调参)
 inline constexpr float kPidPitchAngleKd = 0.0f;  ///< TODO(调参)
 
@@ -118,7 +118,7 @@ inline constexpr float kPidPitchVelKi = 0.0f;    ///< TODO(调参)
 
 /* ---- 遥控映射/IMU ---- */
 inline constexpr float kStickYawGain = 2.5f;     ///< rad/s per 归一化摇杆量（手动模式）
-inline constexpr float kStickPitchGain = 1.5f;   ///< rad/s per 归一化摇杆量（手动模式）
+inline constexpr float kStickPitchGain = 2.5f;   ///< rad/s per 归一化摇杆量（手动模式）
 inline constexpr uint32_t kZeroDriftSamples = 1000;  ///< 上电静止零漂标定样本数（1 kHz 下 1 s）
 
 /* ---- 调试开关（交付前必须为 0，见工具 README §4/§9.3）---- */
