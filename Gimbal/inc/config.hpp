@@ -92,6 +92,15 @@ inline constexpr float kPitchRateMax = 4.5f; ///< rad/s，pitch 关节速度限�
 inline constexpr float kYawTorqueMax = 4.5f;   ///< N·m，yaw 力矩限幅（2026-11-15 3.0→4.5）
 inline constexpr float kPitchTorqueMax = 2.5f; ///< N·m，pitch 力矩限幅（安全）
 inline constexpr float kPitchLimitMargin = 0.10f;  ///< rad，pitch 反馈越限裕度（状态机故障判定）
+/* ---- pitch 重力前馈（2026-11-17 用户要求“加入重力前馈”）----
+ * pitch 轴重心相对电机轴有机械偏置，重力力矩随俯仰角变化：
+ *   τ_g(θ) ≈ A·cos(θ)，θ = pitch 关节角（0 = 水平，正 = 抬头），A = 等效 m·g·L。
+ * 水平位置力矩最大、±90° 为 0；纯位置环需靠静差积累出力矩平衡 → 稳定时“偏一点才停”。
+ * 直接按模型前馈到 MIT 力矩（叠加在速度环输出之后、力矩限幅之前），可减小静差、
+ * 抑制缓慢低头/抬头，降低对位置环增益的依赖。
+ * A 需实车标定：水平位置静止时，位置环静差力矩 ≈ A（可读 gimbal_debug::pitch_torque 估计）；
+ * 若实车观察到前馈方向相反（偏得更远），把 A 取负值即可。 */
+inline constexpr float kPitchGravityTorqueAmp = 0.40f;  ///< N·m，pitch 重力力矩幅值（实车标定，符号按机构定）
 
 /* ---- 云台位置环 PID 初值（输入角度误差 rad，输出目标关节速度 rad/s）---- */
 inline constexpr float kPidYawAngleKp = 13.0f;   ///< 2026-11-15 8→12→10；2026-11-17 用户实车调参 10→13

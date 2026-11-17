@@ -22,6 +22,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "gimbal.hpp"
 
+#include <cmath>
+
 #include "config.hpp"
 #include "gimbal_math.hpp"
 #include "motor.hpp"
@@ -47,6 +49,7 @@ volatile float yaw_vel_target = 0.0f;
 volatile float pitch_err = 0.0f;
 volatile float pitch_vel_target = 0.0f;
 volatile float pitch_vel_ff = 0.0f;
+volatile float pitch_gravity_ff = 0.0f;  ///< pitch 重力前馈力矩（N·m，2026-11-17）
 volatile uint32_t cycle_count = 0;
 }  // namespace gimbal_debug
 
@@ -220,12 +223,23 @@ void Gimbal::update()
                              config::kPidPitchVelKp, config::kPidPitchVelKi,
                              config::kPitchTorqueMax, &pitch_vel_integ_);
 
+  /* 5.1 pitch 重力前馈（2026-11-17 用户要求“加入重力前馈”）：pitch 轴重心偏置
+   *     产生的重力力矩 τ_g(θ) ≈ A·cos(θ)（θ=0 水平最大，±90° 为 0）。纯位置环
+   *     靠静差才能积累出力矩平衡重力 → 稳定时“偏一点才停”；直接按模型前馈，
+   *     可显著减小静差、抑制缓慢低头/抬头。符号：pitch 正=抬头，重力向下（负）
+   *     → 补偿取正；若实车方向相反，把 config::kPitchGravityTorqueAmp 取负。 */
+  const float pitch_gravity_ff =
+      config::kPitchGravityTorqueAmp * std::cos(pitch_joint);
+  const float pitch_torque_total = gimbal_math::ClampValue(
+      pitch_torque + pitch_gravity_ff, -config::kPitchTorqueMax,
+      config::kPitchTorqueMax);
+
   /* 6. 下发 MIT 纯力矩帧（每轴一帧，CommTask 统一发送 encode 结果） */
   SendMitTorque(yaw_, yaw_torque);
-  SendMitTorque(pitch_, pitch_torque);
+  SendMitTorque(pitch_, pitch_torque_total);
 
   yaw_torque_ = yaw_torque;
-  pitch_torque_ = pitch_torque;
+  pitch_torque_ = pitch_torque_total;
 
   /* 7. 调试观测（Ozone Live Watch） */
   gimbal_debug::yaw_joint_target = yaw_joint_target;
@@ -240,9 +254,10 @@ void Gimbal::update()
   gimbal_debug::pitch_err = pitch_target - pitch_joint;
   gimbal_debug::pitch_vel_target = pitch_vel_target;
   gimbal_debug::pitch_vel_ff = pitch_vel_ff_;
+  gimbal_debug::pitch_gravity_ff = pitch_gravity_ff;
   gimbal_debug::pitch_target = pitch_target;
   gimbal_debug::pitch_joint = pitch_joint;
-  gimbal_debug::pitch_torque = pitch_torque;
+  gimbal_debug::pitch_torque = pitch_torque_total;
 }
 
 void Gimbal::stop()
@@ -269,6 +284,7 @@ void Gimbal::stop()
   pitch_torque_ = 0.0f;
   gimbal_debug::yaw_torque = 0.0f;
   gimbal_debug::pitch_torque = 0.0f;
+  gimbal_debug::pitch_gravity_ff = 0.0f;
 }
 
 float Gimbal::yawJoint() const

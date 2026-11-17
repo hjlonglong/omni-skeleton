@@ -65,8 +65,9 @@ extern volatile float yaw_err;           ///< yaw 位置误差（rad，WrapPi �
 extern volatile float yaw_vel_target;    ///< yaw 速度环目标（rad/s，位置环输出+前馈，已限幅）
 extern volatile float pitch_err;         ///< pitch 位置误差（rad）
 extern volatile float pitch_vel_target;  ///< pitch 速度环目标（rad/s，位置环输出+目标速率前馈，已限幅）
-extern volatile float pitch_vel_ff;      ///< pitch 目标速率前馈（rad/s，2026-11-15）
-extern volatile uint32_t cycle_count;    ///< update() 调用计数
+extern volatile float pitch_vel_ff;       ///< pitch 目标速率前馈（rad/s，2026-11-15）
+extern volatile float pitch_gravity_ff;   ///< pitch 重力前馈力矩（N·m，2026-11-17）
+extern volatile uint32_t cycle_count;     ///< update() 调用计数
 }  // namespace gimbal_debug
 
 /**
