@@ -89,8 +89,8 @@ inline constexpr float kPitchRateMax = 4.5f; ///< rad/s，pitch 关节速度限�
 /* yaw 力矩限幅。2026-11-15 由 3.0 提高到 4.5：小陀螺（底盘 3 rad/s）时云台仍需
  * 反向补偿，3.0 N·m 在跟随/自转叠加时不够 → 云台被底盘“拖着转”。DM-J4310-2EC
  * 峰值力矩允许该值；若电机温度明显升高再回退。 */
-inline constexpr float kYawTorqueMax = 4.5f;   ///< N·m，yaw 力矩限幅（2026-11-15 3.0→4.5）
-inline constexpr float kPitchTorqueMax = 2.5f; ///< N·m，pitch 力矩限幅（安全）
+inline constexpr float kYawTorqueMax = 6.5f;   ///< N·m，yaw 力矩限幅（2026-11-15 3.0→4.5）
+inline constexpr float kPitchTorqueMax = 6.5f; ///< N·m，pitch 力矩限幅（安全）
 inline constexpr float kPitchLimitMargin = 0.10f;  ///< rad，pitch 反馈越限裕度（状态机故障判定）
 /* ---- pitch 重力前馈（2026-11-17 用户要求“加入重力前馈”）----
  * pitch 轴重心相对电机轴有机械偏置，重力力矩随俯仰角变化：
@@ -109,9 +109,9 @@ inline constexpr float kPitchGravityTorqueSign = -1.0f;  ///< 重力前馈符号
 inline constexpr float kPidYawAngleKp = 13.0f;   ///< 2026-11-15 8→12→10；2026-11-17 用户实车调参 10→13
 inline constexpr float kPidYawAngleKi = 0.0f;    ///< TODO(调参)
 inline constexpr float kPidYawAngleKd = 0.0f;    ///< TODO(调参)
-inline constexpr float kPidPitchAngleKp = 25.0f;  ///< 2026-11-17 用户实车调参 8→20→25（提高 pitch 刚度）
+inline constexpr float kPidPitchAngleKp = 30.0f;  ///< 2026-11-17 用户实车调参 8→20→25（提高 pitch 刚度）
 inline constexpr float kPidPitchAngleKi = 0.0f;  ///< TODO(调参)
-inline constexpr float kPidPitchAngleKd = 0.0f;  ///< TODO(调参)
+inline constexpr float kPidPitchAngleKd = 0.5f;  ///< TODO(调参)
 
 /* ---- 云台速度环 PID 初值（输入速度误差 rad/s，输出 MIT 力矩前馈/阻尼）---- */
 inline constexpr float kPidYawVelKp = 0.8f;      ///< TODO(调参)
