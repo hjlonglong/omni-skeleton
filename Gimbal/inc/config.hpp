@@ -101,6 +101,9 @@ inline constexpr float kPitchLimitMargin = 0.10f;  ///< rad，pitch 反馈越限
  * A 需实车标定：水平位置静止时，位置环静差力矩 ≈ A（可读 gimbal_debug::pitch_torque 估计）；
  * 若实车观察到前馈方向相反（偏得更远），把 A 取负值即可。 */
 inline constexpr float kPitchGravityTorqueAmp = 0.65f;  ///< N·m，pitch 重力力矩幅值（2026-11-17 用户要求增大：0.40→0.65；继续按实车静差标定）
+/* 重力前馈方向：2026-11-17 实车验证，直接以 +A·cosθ 叠加会加剧下垂（本机构 MIT 正力矩
+ * 对应 pitch 向下），故取 **−1** 反向补偿。若更换电机/接线/机架导致方向再变，只改这个符号。 */
+inline constexpr float kPitchGravityTorqueSign = -1.0f;  ///< 重力前馈符号（±1，2026-11-17 实车反向修正）
 
 /* ---- 云台位置环 PID 初值（输入角度误差 rad，输出目标关节速度 rad/s）---- */
 inline constexpr float kPidYawAngleKp = 13.0f;   ///< 2026-11-15 8→12→10；2026-11-17 用户实车调参 10→13

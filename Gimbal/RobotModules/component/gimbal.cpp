@@ -226,10 +226,12 @@ void Gimbal::update()
   /* 5.1 pitch 重力前馈（2026-11-17 用户要求“加入重力前馈”）：pitch 轴重心偏置
    *     产生的重力力矩 τ_g(θ) ≈ A·cos(θ)（θ=0 水平最大，±90° 为 0）。纯位置环
    *     靠静差才能积累出力矩平衡重力 → 稳定时“偏一点才停”；直接按模型前馈，
-   *     可显著减小静差、抑制缓慢低头/抬头。符号：pitch 正=抬头，重力向下（负）
-   *     → 补偿取正；若实车方向相反，把 config::kPitchGravityTorqueAmp 取负。 */
-  const float pitch_gravity_ff =
-      config::kPitchGravityTorqueAmp * std::cos(pitch_joint);
+   *     可显著减小静差、抑制缓慢低头/抬头。方向由 kPitchGravityTorqueSign 控制：
+   *     实车验证本机构 MIT 正力矩对应 pitch 向下，故取 −1 反向补偿（2026-11-17
+   *     用户反馈“方向加反了、更易下垂”后修正）。 */
+  const float pitch_gravity_ff = config::kPitchGravityTorqueSign *
+                                 config::kPitchGravityTorqueAmp *
+                                 std::cos(pitch_joint);
   const float pitch_torque_total = gimbal_math::ClampValue(
       pitch_torque + pitch_gravity_ff, -config::kPitchTorqueMax,
       config::kPitchTorqueMax);
